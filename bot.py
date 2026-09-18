@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from setup import get_setup_handler
 from schedule import get_schedule_handler
-from database import get_working_hours
+from database import init_database, get_working_hours
 
 from business_context import (
     build_business_prompt,
@@ -35,6 +35,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 ADMIN_ID = 635400979
 
+init_database()
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 ai_manager = AIManager(OPENAI_API_KEY)
 
