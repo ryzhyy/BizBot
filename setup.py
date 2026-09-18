@@ -121,7 +121,7 @@ async def setup_city(
         f"🏷 {category}\n"
         f"📍 {city}\n\n"
         f"Business ID: {business_id}\n\n"
-        "Наступний крок — додамо ваші послуги."
+        "Наступний крок — додамо ваші послуги.\n\nНатисніть /addservice, щоб додати першу послугу."
     )
 
     return ConversationHandler.END
