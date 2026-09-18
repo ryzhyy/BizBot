@@ -331,9 +331,27 @@ async def button_handler(
 
     data = query.data
 
+    # START MENU
+
+    if data == "owner_start":
+        await query.message.reply_text(
+            "🏢 Створімо ваш бізнес!\n\n"
+            "Натисніть /setup, щоб почати налаштування."
+        )
+        return
+
+    elif data == "client_start":
+        await query.message.reply_text(
+            "👤 Щоб записатися, відкрийте персональне "
+            "посилання потрібного бізнесу.\n\n"
+            "Після цього ви зможете обрати послугу, "
+            "дату та час."
+        )
+        return
+
     # SERVICES
 
-    if data == "services":
+    elif data == "services":
 
         await query.message.reply_text(
             "✂️ Наші послуги:\n\n"
