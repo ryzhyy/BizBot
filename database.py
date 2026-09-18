@@ -36,6 +36,22 @@ def init_database():
 
    
     # -------------------------
+    # SERVICES
+    # -------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS services (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            price INTEGER NOT NULL,
+            duration INTEGER NOT NULL,
+            FOREIGN KEY (business_id)
+            REFERENCES businesses(id)
+        )
+    """)
+
+    # -------------------------
     # WORKING HOURS
     # -------------------------
 
