@@ -46,6 +46,7 @@ def init_database():
             name TEXT NOT NULL,
             price INTEGER NOT NULL,
             duration INTEGER NOT NULL,
+            active INTEGER DEFAULT 1,
             FOREIGN KEY (business_id)
             REFERENCES businesses(id)
         )
@@ -114,6 +115,15 @@ def init_database():
     """)
     
     
+    # Migration: add active column to existing services table
+    cursor.execute("PRAGMA table_info(services)")
+    columns = [row[1] for row in cursor.fetchall()]
+
+    if "active" not in columns:
+        cursor.execute(
+            "ALTER TABLE services ADD COLUMN active INTEGER DEFAULT 1"
+        )
+
     conn.commit()
     conn.close()
 def set_business_schedule(

@@ -349,6 +349,43 @@ async def button_handler(
         )
         return
 
+    # BUSINESS SETUP BUTTONS
+
+    elif data == "setup_add_service":
+        await query.message.reply_text(
+            "➕ Додаємо наступну послугу.\n\n"
+            "Натисніть /addservice"
+        )
+        return
+
+    elif data == "setup_finish":
+        business = get_business_by_owner(query.from_user.id)
+
+        if not business:
+            await query.message.reply_text(
+                "⚠️ Бізнес не знайдено. Спробуйте /setup."
+            )
+            return
+
+        business_id = business["id"]
+        business_name = business["name"]
+
+        bot_info = await context.bot.get_me()
+        client_link = (
+            f"https://t.me/{bot_info.username}"
+            f"?start=business_{business_id}"
+        )
+
+        await query.message.reply_text(
+            "🎉 Налаштування завершено!\n\n"
+            f"🏢 {business_name}\n\n"
+            "🔗 Персональне посилання для клієнтів:\n"
+            f"{client_link}\n\n"
+            "Надішліть це посилання клієнтам — "
+            "через нього вони зможуть записуватися."
+        )
+        return
+
     # SERVICES
 
     elif data == "services":

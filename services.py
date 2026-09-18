@@ -1,4 +1,4 @@
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     CommandHandler,
     ContextTypes,
@@ -156,14 +156,28 @@ async def service_duration(
         "service_price"
     ):
         context.user_data.pop(key, None)
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "➕ Додати ще послугу",
+                callback_data="setup_add_service"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ Завершити налаштування",
+                callback_data="setup_finish"
+            )
+        ]
+    ]
 
     await update.message.reply_text(
         "✅ Послугу додано!\n\n"
         f"✂️ {name}\n"
         f"💰 {price} грн\n"
         f"⏱ {duration} хв\n\n"
-        f"Service ID: {service_id}\n\n"
-        "Ще одну послугу можна додати через /addservice."
+        "Що робимо далі? 👇",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
     return ConversationHandler.END
