@@ -1751,42 +1751,6 @@ async def mylink(
     )
 
 
-# TEMP DEBUG — прибрати перед фінальним поданням заявки.
-# Дозволяє перевірити клієнтський текст "Допомога" для будь-якого
-# business_id без окремого Telegram-акаунта в ролі клієнта.
-async def debug_client_help(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    if not context.args:
-        await update.message.reply_text(
-            "Використання: /debug_client_help <business_id>"
-        )
-        return
-
-    try:
-        business_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text(
-            "⚠️ business_id має бути числом."
-        )
-        return
-
-    business = get_business_by_id(business_id)
-
-    if not business:
-        await update.message.reply_text(
-            f"⚠️ Бізнес з id={business_id} не знайдено."
-        )
-        return
-
-    text = await build_client_help_text(business, context)
-
-    await update.message.reply_text(
-        f"🐞 DEBUG (business_id={business_id}):\n\n{text}"
-    )
-
-
 async def post_init(app):
     await app.bot.set_my_commands([
         BotCommand("start", "Почати / головне меню"),
@@ -1858,14 +1822,6 @@ def main():
         CommandHandler(
             "admin",
             admin
-        )
-    )
-
-    # TEMP DEBUG — прибрати перед фінальним поданням заявки.
-    app.add_handler(
-        CommandHandler(
-            "debug_client_help",
-            debug_client_help
         )
     )
 
