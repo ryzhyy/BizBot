@@ -228,27 +228,7 @@ async def show_my_business(
     )
 
 
-async def help_button(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    telegram_id = update.effective_user.id
-    owned_business = get_business_by_owner(telegram_id)
-
-    if owned_business:
-        await update.message.reply_text(
-            "🆘 Підтримка\n\n"
-            "З питань роботи бота: @your_support_username\n\n"
-            "❓ FAQ власника:\n\n"
-            "• Додати послугу — кнопка «➕ Додати послугу» "
-            "або /addservice\n"
-            "• Отримати посилання для клієнтів — /mylink\n"
-            "• Переглянути свої записи — /admin"
-        )
-        return
-
-    business = resolve_current_business(context, telegram_id)
-
+async def build_client_help_text(business, context):
     contact_mode = business["support_contact_mode"] if business else None
     contact_value = business["support_contact_value"] if business else None
 
@@ -295,12 +275,38 @@ async def help_button(
         "• Перенести запис — напишіть «перенеси мій запис на ...»"
     )
 
-    await update.message.reply_text(
+    return (
         "🆘 Допомога\n\n"
         f"{contact_line}\n\n"
         "❓ FAQ:\n\n"
         f"{faq_section}"
     )
+
+
+async def help_button(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    telegram_id = update.effective_user.id
+    owned_business = get_business_by_owner(telegram_id)
+
+    if owned_business:
+        await update.message.reply_text(
+            "🆘 Підтримка\n\n"
+            "З питань роботи бота: @your_support_username\n\n"
+            "❓ FAQ власника:\n\n"
+            "• Додати послугу — кнопка «➕ Додати послугу» "
+            "або /addservice\n"
+            "• Отримати посилання для клієнтів — /mylink\n"
+            "• Переглянути свої записи — /admin"
+        )
+        return
+
+    business = resolve_current_business(context, telegram_id)
+
+    text = await build_client_help_text(business, context)
+
+    await update.message.reply_text(text)
 
 
 async def reply_keyboard_router(
@@ -1744,6 +1750,43 @@ async def mylink(
         f"додайте в Instagram, TikTok чи на сайт."
     )
 
+
+# TEMP DEBUG — прибрати перед фінальним поданням заявки.
+# Дозволяє перевірити клієнтський текст "Допомога" для будь-якого
+# business_id без окремого Telegram-акаунта в ролі клієнта.
+async def debug_client_help(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    if not context.args:
+        await update.message.reply_text(
+            "Використання: /debug_client_help <business_id>"
+        )
+        return
+
+    try:
+        business_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text(
+            "⚠️ business_id має бути числом."
+        )
+        return
+
+    business = get_business_by_id(business_id)
+
+    if not business:
+        await update.message.reply_text(
+            f"⚠️ Бізнес з id={business_id} не знайдено."
+        )
+        return
+
+    text = await build_client_help_text(business, context)
+
+    await update.message.reply_text(
+        f"🐞 DEBUG (business_id={business_id}):\n\n{text}"
+    )
+
+
 async def post_init(app):
     await app.bot.set_my_commands([
         BotCommand("start", "Почати / головне меню"),
@@ -1815,6 +1858,14 @@ def main():
         CommandHandler(
             "admin",
             admin
+        )
+    )
+
+    # TEMP DEBUG — прибрати перед фінальним поданням заявки.
+    app.add_handler(
+        CommandHandler(
+            "debug_client_help",
+            debug_client_help
         )
     )
 
