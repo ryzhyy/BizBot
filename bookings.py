@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from database import get_connection
 
@@ -221,6 +221,59 @@ def mark_booking_completed(booking_id):
     conn.close()
 
     return matched
+
+
+def get_upcoming_bookings_needing_reminder(hours_ahead=2):
+    now = datetime.now()
+    window_end = now + timedelta(hours=hours_ahead)
+
+    now_str = now.strftime("%Y-%m-%d %H:%M")
+    window_end_str = window_end.strftime("%Y-%m-%d %H:%M")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT bookings.id AS id,
+               customers.telegram_id AS customer_telegram_id,
+               services.name AS service,
+               bookings.booking_date AS date,
+               bookings.booking_time AS time,
+               businesses.name AS business_name
+        FROM bookings
+        JOIN customers ON customers.id = bookings.customer_id
+        JOIN services ON services.id = bookings.service_id
+        JOIN businesses ON businesses.id = bookings.business_id
+        WHERE bookings.status = 'confirmed'
+          AND bookings.reminder_sent = 0
+          AND (bookings.booking_date || ' ' || bookings.booking_time)
+              BETWEEN ? AND ?
+        """,
+        (now_str, window_end_str)
+    )
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    return rows
+
+
+def mark_reminder_sent(booking_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        UPDATE bookings
+        SET reminder_sent = 1
+        WHERE id = ?
+        """,
+        (booking_id,)
+    )
+
+    conn.commit()
+    conn.close()
 
 
 def reschedule_booking(booking_id, business_id, new_date, new_time):

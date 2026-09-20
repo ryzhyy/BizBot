@@ -29,8 +29,10 @@ from bookings import (
     get_customer_bookings,
     get_business_bookings,
     get_booking_with_customer,
+    get_upcoming_bookings_needing_reminder,
     cancel_booking,
     mark_booking_completed,
+    mark_reminder_sent,
     reschedule_booking,
 )
 from ai_manager import AIManager
@@ -1853,6 +1855,28 @@ async def debug_client_help(
     )
 
 
+async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
+    bookings = get_upcoming_bookings_needing_reminder(hours_ahead=2)
+
+    for booking in bookings:
+        try:
+            await context.bot.send_message(
+                chat_id=booking["customer_telegram_id"],
+                text=(
+                    "⏰ Нагадування!\n\n"
+                    "Ви записані:\n"
+                    f"✂️ {booking['service']}\n"
+                    f"📅 {booking['date']}\n"
+                    f"🕒 {booking['time']}\n\n"
+                    f"Чекаємо на вас у «{booking['business_name']}»!"
+                )
+            )
+        except Exception as error:
+            print("REMINDER SEND ERROR:", error)
+
+        mark_reminder_sent(booking["id"])
+
+
 async def post_init(app):
     await app.bot.set_my_commands([
         BotCommand("start", "Почати / головне меню"),
@@ -1952,7 +1976,12 @@ def main():
             ai_message
          )
     )
-    
+
+    app.job_queue.run_repeating(
+        send_reminders,
+        interval=900,
+        first=10
+    )
 
     print("BizBot v0.4   запущений!")
 
