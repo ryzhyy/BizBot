@@ -1,5 +1,4 @@
 import os
-import sqlite3
 from datetime import datetime, timedelta
 
 from setup import get_setup_handler
@@ -10,10 +9,22 @@ from business_context import (
     build_business_prompt,
     get_business_by_owner,
     get_business_by_id,
+    get_business_services,
+    get_or_create_service,
 )
 from services import (
     get_addservice_handler,
     get_services_handler,
+)
+from bookings import (
+    get_customer,
+    get_or_create_customer,
+    is_slot_taken,
+    create_booking,
+    get_customer_bookings,
+    get_business_bookings,
+    cancel_booking,
+    reschedule_booking,
 )
 from ai_manager import AIManager
 from dotenv import load_dotenv
@@ -33,8 +44,6 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-ADMIN_ID = 635400979
-
 init_database()
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 ai_manager = AIManager(OPENAI_API_KEY)
@@ -50,111 +59,13 @@ if not OPENAI_API_KEY:
 # DATABASE
 # =========================
 
-def get_connection():
-    return sqlite3.connect("bizbot.db")
+def resolve_current_business(context, telegram_id):
+    client_business_id = context.user_data.get("client_business_id")
 
+    if client_business_id:
+        return get_business_by_id(client_business_id)
 
-def init_db():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            telegram_id INTEGER,
-            client_name TEXT,
-            service TEXT,
-            date TEXT,
-            time TEXT,
-            created_at TEXT
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-def save_booking(telegram_id, client_name, service, date, time):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO bookings
-        (telegram_id, client_name, service, date, time, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (
-        telegram_id,
-        client_name,
-        service,
-        date,
-        time,
-        datetime.now().isoformat()
-    ))
-
-    conn.commit()
-    conn.close()
-
-
-def slot_is_taken(date, time):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "SELECT id FROM bookings WHERE date = ? AND time = ?",
-        (date, time)
-    )
-
-    booking = cursor.fetchone()
-    conn.close()
-
-    return booking is not None
-
-
-def get_user_bookings(telegram_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    cursor.execute("""
-        SELECT id, service, date, time
-        FROM bookings
-        WHERE telegram_id = ?
-        AND date >= ?
-        ORDER BY date, time
-    """, (telegram_id, today))
-
-    bookings = cursor.fetchall()
-    conn.close()
-
-    return bookings
-
-def delete_booking(booking_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "DELETE FROM bookings WHERE id = ?",
-        (booking_id,)
-    )
-
-    conn.commit()
-    conn.close()
-def reschedule_booking(booking_id, new_date, new_time):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        UPDATE bookings
-        SET date = ?, time = ?
-        WHERE id = ?
-        """,
-        (new_date, new_time, booking_id)
-    )
-
-    conn.commit()
-    conn.close()
+    return get_business_by_owner(telegram_id)
 
 # =========================
 # MAIN MENU
@@ -243,8 +154,18 @@ async def my_bookings_command(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    bookings = get_user_bookings(
-        update.effective_user.id
+    business = resolve_current_business(
+        context, update.effective_user.id
+    )
+
+    customer = (
+        get_customer(business["id"], update.effective_user.id)
+        if business else None
+    )
+
+    bookings = (
+        get_customer_bookings(business["id"], customer["id"])
+        if customer else []
     )
 
     if not bookings:
@@ -277,13 +198,15 @@ async def admin(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    if update.effective_user.id != ADMIN_ID:
+    business = get_business_by_owner(update.effective_user.id)
+
+    if not business:
         await update.message.reply_text(
-            "⛔ У вас немає доступу."
+            "⛔ У вас немає власного бізнесу. Спробуйте /setup."
         )
         return
 
-    bookings = get_all_bookings()
+    bookings = get_business_bookings(business["id"])
 
     if not bookings:
         await update.message.reply_text(
@@ -412,8 +335,18 @@ async def button_handler(
 
     elif data == "mybookings":
 
-        bookings = get_user_bookings(
-            query.from_user.id
+        business = resolve_current_business(
+            context, query.from_user.id
+        )
+
+        customer = (
+            get_customer(business["id"], query.from_user.id)
+            if business else None
+        )
+
+        bookings = (
+            get_customer_bookings(business["id"], customer["id"])
+            if customer else []
         )
 
         if not bookings:
@@ -442,19 +375,32 @@ async def button_handler(
 
     elif data == "book":
 
+        business = resolve_current_business(
+            context, query.from_user.id
+        )
+
+        if not business:
+            await query.message.reply_text(
+                "⚠️ Не вдалося визначити бізнес для запису."
+            )
+            return
+
+        services = get_business_services(business["id"])
+
+        if not services:
+            await query.message.reply_text(
+                "😔 У цього бізнесу ще немає доданих послуг."
+            )
+            return
+
+        context.user_data["booking_business_id"] = business["id"]
+
         keyboard = [
             [InlineKeyboardButton(
-                "✂️ Стрижка — 500 грн",
-                callback_data="service_haircut"
-            )],
-            [InlineKeyboardButton(
-                "🧔 Борода — 300 грн",
-                callback_data="service_beard"
-            )],
-            [InlineKeyboardButton(
-                "✂️ Стрижка + борода — 700 грн",
-                callback_data="service_combo"
+                f"✂️ {service['name']} — {service['price']} грн",
+                callback_data=f"service_{service['id']}"
             )]
+            for service in services
         ]
 
         await query.message.reply_text(
@@ -466,23 +412,28 @@ async def button_handler(
 
     elif data.startswith("service_"):
 
-        services = {
-            "service_haircut": "Стрижка",
-            "service_beard": "Борода",
-            "service_combo": "Стрижка + борода"
-        }
+        booking_business_id = context.user_data.get("booking_business_id")
 
-        context.user_data["service"] = services[data]
-        
-        service_codes = {
-        "service_haircut": "haircut",
-        "service_beard": "beard",
-        "service_combo": "combo"
-        }
-        
-        ai_state = context.user_data.get("ai_state", {})
-        ai_state["service"] = service_codes[data]
-        context.user_data["ai_state"] = ai_state
+        service_id = int(data.replace("service_", ""))
+
+        service = next(
+            (
+                s for s in get_business_services(booking_business_id)
+                if s["id"] == service_id
+            ),
+            None
+        ) if booking_business_id else None
+
+        if not service:
+            await query.message.reply_text(
+                "⚠️ Сесію бронювання втрачено. "
+                "Почніть заново через «Записатися»."
+            )
+            return
+
+        context.user_data["service_id"] = service["id"]
+        context.user_data["service_name"] = service["name"]
+
         today = datetime.now()
 
         weekdays = [
@@ -528,7 +479,7 @@ async def button_handler(
         ])
 
         await query.message.reply_text(
-            f"✂️ {services[data]}\n\n"
+            f"✂️ {service['name']}\n\n"
             "📅 Оберіть зручний день:",
             reply_markup=InlineKeyboardMarkup(keyboard)
 
@@ -536,6 +487,8 @@ async def button_handler(
 
     # DATE
     elif data.startswith("date_"):
+
+        booking_business_id = context.user_data.get("booking_business_id")
 
         selected_date = data.replace("date_", "")
         context.user_data["date"] = selected_date
@@ -549,7 +502,7 @@ async def button_handler(
         for hour in range(10, 20):
             selected_time = f"{hour:02d}:00"
 
-            if not slot_is_taken(selected_date, selected_time):
+            if not is_slot_taken(booking_business_id, selected_date, selected_time):
                 available_times.append(selected_time)
 
         if not available_times:
@@ -592,8 +545,8 @@ async def button_handler(
 
         context.user_data["time"] = selected_time
 
-        service = context.user_data.get(
-            "service"
+        service_name = context.user_data.get(
+            "service_name"
         )
 
         date = context.user_data.get(
@@ -613,7 +566,7 @@ async def button_handler(
 
         await query.message.reply_text(
             "📋 Ваш запис:\n\n"
-            f"✂️ {service}\n"
+            f"✂️ {service_name}\n"
             f"📅 {date}\n"
             f"🕐 {selected_time}\n\n"
             "Підтверджуєте?",
@@ -626,9 +579,9 @@ async def button_handler(
 
         user = query.from_user
 
-        service = context.user_data.get(
-            "service"
-        )
+        booking_business_id = context.user_data.get("booking_business_id")
+        service_id = context.user_data.get("service_id")
+        service_name = context.user_data.get("service_name")
 
         date = context.user_data.get(
             "date"
@@ -638,7 +591,7 @@ async def button_handler(
             "time"
         )
 
-        if not service or not date or not time:
+        if not booking_business_id or not service_id or not date or not time:
 
             await query.message.reply_text(
                 "⚠️ Дані запису втрачено. "
@@ -647,7 +600,7 @@ async def button_handler(
             return
 
         # Important: re-check before saving.
-        if slot_is_taken(date, time):
+        if is_slot_taken(booking_business_id, date, time):
 
             await query.message.reply_text(
                 "😔 Цей час щойно зайняли.\n"
@@ -657,17 +610,21 @@ async def button_handler(
             context.user_data.clear()
             return
 
-        save_booking(
-            user.id,
-            user.full_name,
-            service,
+        customer_id = get_or_create_customer(
+            booking_business_id, user.id, user.full_name
+        )
+
+        create_booking(
+            booking_business_id,
+            customer_id,
+            service_id,
             date,
             time
         )
 
         await query.message.reply_text(
             "✅ Запис підтверджено!\n\n"
-            f"✂️ {service}\n"
+            f"✂️ {service_name}\n"
             f"📅 {date}\n"
             f"🕐 {time}\n\n"
             "До зустрічі! 👋"
@@ -689,7 +646,9 @@ async def button_handler(
 
     elif data.startswith("admin_delete_"):
 
-        if query.from_user.id != ADMIN_ID:
+        business = get_business_by_owner(query.from_user.id)
+
+        if not business:
 
             await query.message.reply_text(
                 "⛔ У вас немає доступу."
@@ -703,7 +662,13 @@ async def button_handler(
             )
         )
 
-        delete_booking(booking_id)
+        cancelled = cancel_booking(booking_id, business["id"])
+
+        if not cancelled:
+            await query.message.reply_text(
+                "⚠️ Цей запис не знайдено у вашому бізнесі."
+            )
+            return
 
         await query.edit_message_text(
             f"🗑 Запис #{booking_id} скасовано."
@@ -753,12 +718,17 @@ async def ai_message(
         answer = user_text.strip().lower()
 
         if answer in ("так", "так.", "yes", "ага", "підтверджую"):
+            pending_cancel_business_id = context.user_data.get(
+                "pending_cancel_business_id"
+            )
+
             for booking_id in pending_cancel_ids:
-                delete_booking(booking_id)
+                cancel_booking(booking_id, pending_cancel_business_id)
 
             count = len(pending_cancel_ids)
 
             context.user_data.pop("pending_cancel_ids", None)
+            context.user_data.pop("pending_cancel_business_id", None)
             context.user_data.pop("ai_state", None)
 
             await update.message.reply_text(
@@ -875,8 +845,18 @@ async def ai_message(
         # -----------------------------
 
         if intent == "my_bookings":
-            bookings = get_user_bookings(
-                update.effective_user.id
+            business = resolve_current_business(
+                context, update.effective_user.id
+            )
+
+            customer = (
+                get_customer(business["id"], update.effective_user.id)
+                if business else None
+            )
+
+            bookings = (
+                get_customer_bookings(business["id"], customer["id"])
+                if customer else []
             )
 
             if not bookings:
@@ -929,7 +909,19 @@ async def ai_message(
         # ----------------------------
 
         if intent == "cancel_booking":
-            bookings = get_user_bookings(update.effective_user.id)
+            business = resolve_current_business(
+                context, update.effective_user.id
+            )
+
+            customer = (
+                get_customer(business["id"], update.effective_user.id)
+                if business else None
+            )
+
+            bookings = (
+                get_customer_bookings(business["id"], customer["id"])
+                if customer else []
+            )
 
             # Фільтруємо за датою
             if date:
@@ -940,9 +932,11 @@ async def ai_message(
 
             # Фільтруємо за послугою
             if service:
+                expected_service = service_names.get(service, service)
+
                 bookings = [
                     b for b in bookings
-                    if b[1] == service
+                    if b[1] == expected_service
                 ]
 
             # Фільтруємо за часом
@@ -962,6 +956,7 @@ async def ai_message(
             context.user_data["pending_cancel_ids"] = [
                 b[0] for b in bookings
             ]
+            context.user_data["pending_cancel_business_id"] = business["id"]
 
             text = "🗑 Знайдено записи для скасування:\n\n"
 
@@ -993,7 +988,19 @@ async def ai_message(
         # ---------------------------
 
         if intent == "reschedule_booking":
-            bookings = get_user_bookings(update.effective_user.id)
+            business = resolve_current_business(
+                context, update.effective_user.id
+            )
+
+            customer = (
+                get_customer(business["id"], update.effective_user.id)
+                if business else None
+            )
+
+            bookings = (
+                get_customer_bookings(business["id"], customer["id"])
+                if customer else []
+            )
 
             # Шукаємо запис, який користувач хоче перенести
             matching_bookings = []
@@ -1046,7 +1053,7 @@ async def ai_message(
                 new_date = old_date
 
             # Перевіряємо новий слот
-            if slot_is_taken(new_date, new_time):
+            if is_slot_taken(business["id"], new_date, new_time):
                 await update.message.reply_text(
                     f"😕 {new_date} о {new_time} вже зайнято.\n"
                     "Оберіть інший час."
@@ -1056,6 +1063,7 @@ async def ai_message(
             # Запам'ятовуємо перенесення до підтвердження
             context.user_data["pending_reschedule"] = {
                 "booking_id": booking_id,
+                "business_id": business["id"],
                 "old_date": old_date,
                 "old_time": old_time,
                 "new_date": new_date,
@@ -1086,292 +1094,301 @@ async def ai_message(
             )
             return
 
-    
-            # -------------------------
-            # ПІДТВЕРДЖЕННЯ
-            # -------------------------
-    
-            if intent == "confirm":
 
-                pending_reschedule = context.user_data.get("pending_reschedule")
+        # -------------------------
+        # ПІДТВЕРДЖЕННЯ
+        # -------------------------
 
-                if pending_reschedule:
-                    booking_id = pending_reschedule["booking_id"]
-                    new_date = pending_reschedule["new_date"]
-                    new_time = pending_reschedule["new_time"]
+        if intent == "confirm":
 
-                    if slot_is_taken(new_date, new_time):
-                        await update.message.reply_text(
-                            "😔 Цей час уже зайнятий. Оберіть інший час."
-                        )
-                        return
+            pending_reschedule = context.user_data.get("pending_reschedule")
 
-                    update_booking_datetime(
-                        booking_id,
-                        new_date,
-                        new_time
-                    )
+            if pending_reschedule:
+                booking_id = pending_reschedule["booking_id"]
+                reschedule_business_id = pending_reschedule["business_id"]
+                new_date = pending_reschedule["new_date"]
+                new_time = pending_reschedule["new_time"]
 
-                    context.user_data.pop("pending_reschedule", None)
-                    context.user_data.pop("ai_state", None)
-
+                if is_slot_taken(reschedule_business_id, new_date, new_time):
                     await update.message.reply_text(
-                        "✅ Запис успішно перенесено!\n\n"
-                        f"📅 {new_date}\n"
-                        f"🕒 {new_time}"
+                        "😔 Цей час уже зайнятий. Оберіть інший час."
                     )
                     return
-    
-                if not service or not date or not time:
-                    await update.message.reply_text(
-                        "Поки не маю всіх даних для запису."
-                    )
-                    return
-    
-                if slot_is_taken(date, time):
-                    await update.message.reply_text(
-                        "😔 Цей час уже зайнятий. "
-                        "Оберіть інший."
-                    )
-                    return
-    
-                user = update.effective_user
-    
-                save_booking(
-                    user.id,
-                    user.full_name,
-                    service_names.get(service, service),
-                    date,
-                    time
+
+                reschedule_booking(
+                    booking_id,
+                    reschedule_business_id,
+                    new_date,
+                    new_time
                 )
-    
-                await update.message.reply_text(
-                    "✅ Готово! Ви записані.\n\n"
-                    f"✂️ {service_names.get(service, service)}\n"
-                    f"📅 {date}\n"
-                    f"🕐 {time}\n\n"
-                    "До зустрічі! 👋"
-                )
-    
+
+                context.user_data.pop("pending_reschedule", None)
                 context.user_data.pop("ai_state", None)
+
+                await update.message.reply_text(
+                    "✅ Запис успішно перенесено!\n\n"
+                    f"📅 {new_date}\n"
+                    f"🕒 {new_time}"
+                )
                 return
-    
-            # -------------------------
-            # КЛІЄНТ ОБРАВ ЧАС
-            # -------------------------
-    
-            if intent == "choose_time" and time:
-    
-                if not service or not date:
-                    await update.message.reply_text(
-                        "Уточніть, будь ласка, "
-                        "послугу та день запису."
-                    )
-                    return
-    
-                if slot_is_taken(date, time):
-                    await update.message.reply_text(
-                        "😔 На жаль, цей час уже зайнятий."
-                    )
-                    return
-    
+
+            if not service or not date or not time:
+                await update.message.reply_text(
+                    "Поки не маю всіх даних для запису."
+                )
+                return
+
+            confirm_business = resolve_current_business(
+                context, update.effective_user.id
+            )
+
+            if not confirm_business:
+                await update.message.reply_text(
+                    "⚠️ Не вдалося визначити бізнес для запису."
+                )
+                return
+
+            if is_slot_taken(confirm_business["id"], date, time):
+                await update.message.reply_text(
+                    "😔 Цей час уже зайнятий. "
+                    "Оберіть інший."
+                )
+                return
+
+            user = update.effective_user
+
+            confirm_service = get_or_create_service(
+                confirm_business["id"],
+                service_names.get(service, service)
+            )
+
+            confirm_customer_id = get_or_create_customer(
+                confirm_business["id"], user.id, user.full_name
+            )
+
+            create_booking(
+                confirm_business["id"],
+                confirm_customer_id,
+                confirm_service["id"],
+                date,
+                time
+            )
+
+            await update.message.reply_text(
+                "✅ Готово! Ви записані.\n\n"
+                f"✂️ {service_names.get(service, service)}\n"
+                f"📅 {date}\n"
+                f"🕐 {time}\n\n"
+                "До зустрічі! 👋"
+            )
+
+            context.user_data.pop("ai_state", None)
+            return
+
+        # -------------------------
+        # КЛІЄНТ ОБРАВ ЧАС
+        # -------------------------
+
+        if intent == "choose_time" and time:
+
+            if not service or not date:
+                await update.message.reply_text(
+                    "Уточніть, будь ласка, "
+                    "послугу та день запису."
+                )
+                return
+
+            choose_time_business = resolve_current_business(
+                context, update.effective_user.id
+            )
+
+            if not choose_time_business:
+                await update.message.reply_text(
+                    "⚠️ Не вдалося визначити бізнес для запису."
+                )
+                return
+
+            if is_slot_taken(choose_time_business["id"], date, time):
+                await update.message.reply_text(
+                    "😔 На жаль, цей час уже зайнятий."
+                )
+                return
+
+            state["time"] = time
+            context.user_data["ai_state"] = state
+
+            await update.message.reply_text(
+                "📋 Підтверджуємо запис?\n\n"
+                f"✂️ {service_names.get(service, service)}\n"
+                f"📅 {date}\n"
+                f"🕐 {time}\n\n"
+                "Напишіть «так» для підтвердження."
+            )
+            return
+
+        # -------------------------
+        # ПОШУК ВІЛЬНОГО ЧАСУ
+        # -------------------------
+
+        if intent == "booking":
+
+            if not service:
+                await update.message.reply_text(
+                    "✂️ Що бажаєте зробити?\n\n"
+                    "Стрижка — 500 грн\n"
+                    "Борода — 300 грн\n"
+                    "Стрижка + борода — 700 грн"
+                )
+
+                state["date"] = date
                 state["time"] = time
                 context.user_data["ai_state"] = state
-    
+                return
+
+            # Визначаємо бізнес
+            business = resolve_current_business(
+                context, update.effective_user.id
+            )
+
+            if not business:
                 await update.message.reply_text(
-                    "📋 Підтверджуємо запис?\n\n"
-                    f"✂️ {service_names.get(service, service)}\n"
-                    f"📅 {date}\n"
-                    f"🕐 {time}\n\n"
-                    "Напишіть «так» для підтвердження."
+                    "⚠️Не вдалося визначити бізнес для запису."
                 )
                 return
-    
-            # -------------------------
-            # ПОШУК ВІЛЬНОГО ЧАСУ
-            # -------------------------
-    
-            if intent == "booking":
 
-                if not service:
-                    await update.message.reply_text(
-                        "✂️ Що бажаєте зробити?\n\n"
-                        "Стрижка — 500 грн\n"
-                        "Борода — 300 грн\n"
-                        "Стрижка + борода — 700 грн"
-                    )
+            if not service:
+                await update.message.reply_text(
+                    "Що бажаєте зробити?\n\n"
+                    "✂️Стрижка\n"
+                    "🧔Борода\n"
+                    "✂️Стрижка + борода"
+                )
+                return
 
-                    state["date"] = date
-                    state["time"] = time
-                    context.user_data["ai_state"] = state
-                    return
+            if not date:
+                await update.message.reply_text(
+                    "На який день хочете записатися?"
+                )
+                return
 
-                # Визначаємо бізнес
-                client_business_id = context.user_data.get(
-                    "client_business_id"
+            # Якщо дату ще не визначено
+            if not date:
+                await update.message.reply_text(
+                    "На який день хочете записатися?"
                 )
-    
-                if client_business_id:
-                    business = get_business_by_id(
-                        client_business_id
-                    )
-                else:
-                    business = get_business_by_owner(
-                        update.effective_user.id
-                    )
-    
-                if not business:
-                    await update.message.reply_text(
-                        "⚠️Не вдалося визначити бізнес для запису."
-                    )
-                    return
-    
-                if not service:
-                    await update.message.reply_text(
-                        "Що бажаєте зробити?\n\n"
-                        "✂️Стрижка\n"
-                        "🧔Борода\n"
-                        "✂️Стрижка + борода"
-                    )
-                    return
-    
-                if not date:
-                    await update.message.reply_text(
-                        "На який день хочете записатися?"
-                    )
-                    return
-    
-                # Якщо дату ще не визначено
-                if not date:
-                    await update.message.reply_text(
-                        "На який день хочете записатися?"
-                    )
-                    return
-    
-                # Визначаємо день тижня
-                booking_date = datetime.strptime(
-                    date,
-                    "%Y-%m-%d"
+                return
+
+            # Визначаємо день тижня
+            booking_date = datetime.strptime(
+                date,
+                "%Y-%m-%d"
+            )
+
+            weekday = booking_date.weekday()
+
+            # Беремо графік конкретного бізнесу
+            working_hours = get_working_hours(
+                business["id"]
+            )
+
+            day_schedule = next(
+                (
+                    row
+                    for row in working_hours
+                    if row["weekday"] == weekday
+                ),
+                None
+            )
+
+            # Перевіряємо, чи бізнес працює цього дня
+            if (
+                not day_schedule
+                or not day_schedule["is_open"]
+            ):
+                await update.message.reply_text(
+                    "😔 У цей день ми не працюємо.\n"
+                    "Оберіть, будь ласка, інший день."
                 )
-    
-                weekday = booking_date.weekday()
-    
-                # Беремо графік конкретного бізнесу
-                working_hours = get_working_hours(
-                    business["id"]
+                return
+
+            start_time = datetime.strptime(
+                day_schedule["start_time"],
+                "%H:%M"
+            )
+
+            end_time = datetime.strptime(
+                day_schedule["end_time"],
+                "%H:%M"
+            )
+
+            # Генеруємо слоти кожні 60 хвилин
+            available_times = []
+            current_time = start_time
+
+            while current_time < end_time:
+                available_times.append(
+                    current_time.strftime("%H:%M")
                 )
-    
-                day_schedule = next(
-                    (
-                        row
-                        for row in working_hours
-                        if row["weekday"] == weekday
-                    ),
-                    None
-                )
-    
-                # Перевіряємо, чи бізнес працює цього дня
-                if (
-                    not day_schedule
-                    or not day_schedule["is_open"]
-                ):
-                    await update.message.reply_text(
-                        "😔 У цей день ми не працюємо.\n"
-                        "Оберіть, будь ласка, інший день."
-                    )
-                    return
-    
-                start_time = datetime.strptime(
-                    day_schedule["start_time"],
-                    "%H:%M"
-                )
-    
-                end_time = datetime.strptime(
-                    day_schedule["end_time"],
-                    "%H:%M"
-                )
-    
-                # Генеруємо слоти кожні 60 хвилин
-                available_times = []
-                current_time = start_time
-    
-                while current_time < end_time:
-                    available_times.append(
-                        current_time.strftime("%H:%M")
-                    )
-                    current_time += timedelta(minutes=60)
-    
-                # Прибираємо зайняті години
+                current_time += timedelta(minutes=60)
+
+            # Прибираємо зайняті години
+            available_times = [
+                t
+                for t in available_times
+                if not is_slot_taken(business["id"], date, t)
+            ]
+
+            # Наприклад: "після 16"
+            if after_time:
                 available_times = [
                     t
                     for t in available_times
-                    if not slot_is_taken(date, t)
+                    if t >= after_time
                 ]
-    
-                # Наприклад: "після 16"
-                if after_time:
-                    available_times = [
-                        t
-                        for t in available_times
-                        if t >= after_time
-                    ]
-    
-                if not available_times:
-                    await update.message.reply_text(
-                        "😔 На цей день відповідного "
-                        "вільного часу немає."
-                    )
-                    return
-    
-                times_text = "\n".join(
-                    f"🕐 {t}"
-                    for t in available_times
-                )
-    
+
+            if not available_times:
                 await update.message.reply_text(
-                    f"На {date} доступно:\n\n"
-                    f"{times_text}\n\n"
-                    "Напишіть зручний час."
+                    "😔 На цей день відповідного "
+                    "вільного часу немає."
                 )
                 return
-    
-            # -------------------------
-            # ЗВИЧАЙНА РОЗМОВА
-            # -------------------------
-    
-           
-            client_business_id = context.user_data.get(
-                "client_business_id"
+
+            times_text = "\n".join(
+                f"🕐 {t}"
+                for t in available_times
             )
-    
-            if client_business_id:
-                # CLIENT MODE
-                business = get_business_by_id(
-                    client_business_id
-                )
-    
-            else:
-                # Перевіряємо, чи користувач є власником
-                business = get_business_by_owner(
-                    update.effective_user.id
-                )
-    
-            if business:
-                dynamic_business_info = build_business_prompt(
-                    business["id"]
-                )
-            else:
-                dynamic_business_info = BUSINESS_INFO
-    
-            response = await client.responses.create(
-                model="gpt-5.6-luna",
-                instructions=dynamic_business_info,
-                input=user_text
-            )
-    
+
             await update.message.reply_text(
-                response.output_text
+                f"На {date} доступно:\n\n"
+                f"{times_text}\n\n"
+                "Напишіть зручний час."
             )
+            return
+
+        # -------------------------
+        # ЗВИЧАЙНА РОЗМОВА
+        # -------------------------
+
+        business = resolve_current_business(
+            context, update.effective_user.id
+        )
+
+        if business:
+            dynamic_business_info = build_business_prompt(
+                business["id"]
+            )
+        else:
+            dynamic_business_info = BUSINESS_INFO
+
+        response = await client.responses.create(
+            model="gpt-5.6-luna",
+            instructions=dynamic_business_info,
+            input=user_text
+        )
+
+        await update.message.reply_text(
+            response.output_text
+        )
     except Exception as error:
         print("AI ERROR:", error)
 
@@ -1417,8 +1434,6 @@ async def mylink(
     )
 
 def main():
-    init_db()
-
     app = (
         Application
         .builder()

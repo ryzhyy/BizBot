@@ -59,6 +59,46 @@ def get_business_services(business_id):
     return services
 
 
+def get_or_create_service(business_id, name, price=0, duration=0):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id, name, price, duration
+        FROM services
+        WHERE business_id = ? AND name = ? AND active = 1
+        """,
+        (business_id, name)
+    )
+
+    service = cursor.fetchone()
+
+    if not service:
+        cursor.execute(
+            """
+            INSERT INTO services (business_id, name, price, duration)
+            VALUES (?, ?, ?, ?)
+            """,
+            (business_id, name, price, duration)
+        )
+        conn.commit()
+
+        cursor.execute(
+            """
+            SELECT id, name, price, duration
+            FROM services
+            WHERE id = ?
+            """,
+            (cursor.lastrowid,)
+        )
+        service = cursor.fetchone()
+
+    conn.close()
+
+    return service
+
+
 def build_business_prompt(business_id):
     conn = get_connection()
     cursor = conn.cursor()

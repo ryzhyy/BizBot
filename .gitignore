@@ -12,3 +12,4 @@ bot_before_*.py
 bot.bizbot
 bizbot
 bizbot_v*.db
+_archive/
