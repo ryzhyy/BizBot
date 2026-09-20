@@ -67,6 +67,32 @@ def resolve_current_business(context, telegram_id):
 
     return get_business_by_owner(telegram_id)
 
+
+async def notify_owner_of_booking(
+    context, business, customer_name, service_name, date, time
+):
+    if not business:
+        return
+
+    owner_telegram_id = business["owner_telegram_id"]
+
+    if not owner_telegram_id:
+        return
+
+    try:
+        await context.bot.send_message(
+            chat_id=owner_telegram_id,
+            text=(
+                "🔔 Новий запис!\n\n"
+                f"👤 {customer_name}\n"
+                f"✂️ {service_name}\n"
+                f"📅 {date}\n"
+                f"🕒 {time}"
+            )
+        )
+    except Exception as error:
+        print("OWNER NOTIFY ERROR:", error)
+
 # =========================
 # MAIN MENU
 # =========================
@@ -622,6 +648,17 @@ async def button_handler(
             time
         )
 
+        booking_business = get_business_by_id(booking_business_id)
+
+        await notify_owner_of_booking(
+            context,
+            booking_business,
+            user.full_name,
+            service_name,
+            date,
+            time
+        )
+
         await query.message.reply_text(
             "✅ Запис підтверджено!\n\n"
             f"✂️ {service_name}\n"
@@ -1170,6 +1207,15 @@ async def ai_message(
                 confirm_business["id"],
                 confirm_customer_id,
                 confirm_service["id"],
+                date,
+                time
+            )
+
+            await notify_owner_of_booking(
+                context,
+                confirm_business,
+                user.full_name,
+                service_names.get(service, service),
                 date,
                 time
             )

@@ -7,7 +7,7 @@ def get_business_by_owner(owner_telegram_id):
 
     cursor.execute(
         """
-        SELECT id, name, category, city, phone
+        SELECT id, name, category, city, phone, owner_telegram_id
         FROM businesses
         WHERE owner_telegram_id = ?
         """,
@@ -26,7 +26,7 @@ def get_business_by_id(business_id):
 
     cursor.execute(
         """
-        SELECT id, name, category, city, phone
+        SELECT id, name, category, city, phone, owner_telegram_id
         FROM businesses
         WHERE id = ?
         """,
