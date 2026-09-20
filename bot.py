@@ -67,12 +67,17 @@ if not OPENAI_API_KEY:
 # =========================
 
 def resolve_current_business(context, telegram_id):
+    owned_business = get_business_by_owner(telegram_id)
+
+    if owned_business:
+        return owned_business
+
     client_business_id = context.user_data.get("client_business_id")
 
     if client_business_id:
         return get_business_by_id(client_business_id)
 
-    return get_business_by_owner(telegram_id)
+    return None
 
 
 # =========================
@@ -353,7 +358,10 @@ async def start(
                 )
                 return
 
-    # Звичайний /start без business ID
+    # Звичайний /start без business ID —
+    # прибираємо попередній client-контекст, якщо він був
+    context.user_data.pop("client_business_id", None)
+
     await update.message.reply_text(
         "👋 Вітаю у BizBot!\n\n"
         "Якщо ви власник бізнесу — використайте /setup.\n\n"
