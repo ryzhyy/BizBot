@@ -28,7 +28,9 @@ from bookings import (
     create_booking,
     get_customer_bookings,
     get_business_bookings,
+    get_booking_with_customer,
     cancel_booking,
+    mark_booking_completed,
     reschedule_booking,
 )
 from ai_manager import AIManager
@@ -524,6 +526,10 @@ async def admin(
             InlineKeyboardButton(
                 "❌ Скасувати запис",
                 callback_data=f"admin_delete_{booking_id}"
+            ),
+            InlineKeyboardButton(
+                "✅ Виконано",
+                callback_data=f"admin_complete_{booking_id}"
             )
         ]]
 
@@ -981,6 +987,66 @@ async def button_handler(
         await query.edit_message_text(
             f"🗑 Запис #{booking_id} скасовано."
         )
+
+    # ADMIN COMPLETE
+
+    elif data.startswith("admin_complete_"):
+
+        business = get_business_by_owner(query.from_user.id)
+
+        if not business:
+
+            await query.message.reply_text(
+                "⛔ У вас немає доступу."
+            )
+            return
+
+        booking_id = int(
+            data.replace(
+                "admin_complete_",
+                ""
+            )
+        )
+
+        booking = get_booking_with_customer(booking_id, business["id"])
+
+        if not booking:
+            await query.message.reply_text(
+                "⚠️ Цей запис не знайдено у вашому бізнесі."
+            )
+            return
+
+        mark_booking_completed(booking_id)
+
+        client_notified = True
+
+        try:
+            await context.bot.send_message(
+                chat_id=booking["customer_telegram_id"],
+                text=(
+                    "✅ Роботу виконано!\n\n"
+                    f"✂️ {booking['service']}\n"
+                    f"📅 {booking['date']}\n"
+                    f"🕒 {booking['time']}\n\n"
+                    "Дякуємо, що скористались нашими послугами! "
+                    "Будемо раді бачити вас знову."
+                )
+            )
+        except Exception as error:
+            client_notified = False
+            print("NOTIFY CLIENT ERROR:", error)
+
+        if client_notified:
+            await query.edit_message_text(
+                f"✅ Запис #{booking_id} позначено виконаним, "
+                "клієнта сповіщено."
+            )
+        else:
+            await query.edit_message_text(
+                f"✅ Запис #{booking_id} позначено виконаним.\n"
+                "⚠️ Не вдалося сповістити клієнта "
+                "(можливо, заблокував бота)."
+            )
 
 # =========================
 # AI MANAGER
