@@ -158,6 +158,31 @@ def get_business_bookings(business_id):
     return rows
 
 
+def get_booking_with_customer(booking_id, business_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT bookings.id AS id,
+               customers.telegram_id AS customer_telegram_id,
+               services.name AS service,
+               bookings.booking_date AS date,
+               bookings.booking_time AS time
+        FROM bookings
+        JOIN customers ON customers.id = bookings.customer_id
+        JOIN services ON services.id = bookings.service_id
+        WHERE bookings.id = ? AND bookings.business_id = ?
+        """,
+        (booking_id, business_id)
+    )
+
+    row = cursor.fetchone()
+    conn.close()
+
+    return row
+
+
 def cancel_booking(booking_id, business_id):
     conn = get_connection()
     cursor = conn.cursor()
@@ -169,6 +194,26 @@ def cancel_booking(booking_id, business_id):
         WHERE id = ? AND business_id = ?
         """,
         (booking_id, business_id)
+    )
+
+    conn.commit()
+    matched = cursor.rowcount > 0
+    conn.close()
+
+    return matched
+
+
+def mark_booking_completed(booking_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        UPDATE bookings
+        SET status = 'completed'
+        WHERE id = ?
+        """,
+        (booking_id,)
     )
 
     conn.commit()
