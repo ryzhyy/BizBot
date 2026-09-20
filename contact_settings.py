@@ -117,6 +117,18 @@ async def setcontact_cancel(
 
 
 def get_setcontact_handler():
+    # Lazy import: bot.py imports get_setcontact_handler at module load
+    # time, so importing from bot at module level here would circular-
+    # import. By the time this function actually runs (from main()),
+    # bot.py has finished loading.
+    from bot import REPLY_MENU_BUTTON_TEXTS, reply_keyboard_router
+
+    menu_button_filter = filters.Text(REPLY_MENU_BUTTON_TEXTS)
+
+    async def interrupt_on_menu_button(update, context):
+        await reply_keyboard_router(update, context)
+        return ConversationHandler.END
+
     return ConversationHandler(
         entry_points=[
             CommandHandler("setcontact", setcontact_start),
@@ -127,17 +139,20 @@ def get_setcontact_handler():
         ],
         states={
             CONTACT_CHOOSE_MODE: [
-                CallbackQueryHandler(setcontact_choose_mode)
+                CallbackQueryHandler(setcontact_choose_mode),
+                MessageHandler(menu_button_filter, interrupt_on_menu_button),
             ],
             CONTACT_MANUAL_VALUE: [
+                MessageHandler(menu_button_filter, interrupt_on_menu_button),
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     setcontact_manual_value
-                )
+                ),
             ],
         },
         fallbacks=[
-            CommandHandler("cancel", setcontact_cancel)
+            CommandHandler("cancel", setcontact_cancel),
+            MessageHandler(menu_button_filter, interrupt_on_menu_button),
         ],
     )
 
@@ -196,6 +211,15 @@ async def setfaq_cancel(
 
 
 def get_setfaq_handler():
+    # Lazy import: see comment in get_setcontact_handler().
+    from bot import REPLY_MENU_BUTTON_TEXTS, reply_keyboard_router
+
+    menu_button_filter = filters.Text(REPLY_MENU_BUTTON_TEXTS)
+
+    async def interrupt_on_menu_button(update, context):
+        await reply_keyboard_router(update, context)
+        return ConversationHandler.END
+
     return ConversationHandler(
         entry_points=[
             CommandHandler("setfaq", setfaq_start),
@@ -206,13 +230,15 @@ def get_setfaq_handler():
         ],
         states={
             FAQ_TEXT: [
+                MessageHandler(menu_button_filter, interrupt_on_menu_button),
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     setfaq_save
-                )
+                ),
             ],
         },
         fallbacks=[
-            CommandHandler("cancel", setfaq_cancel)
+            CommandHandler("cancel", setfaq_cancel),
+            MessageHandler(menu_button_filter, interrupt_on_menu_button),
         ],
     )
