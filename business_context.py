@@ -7,7 +7,8 @@ def get_business_by_owner(owner_telegram_id):
 
     cursor.execute(
         """
-        SELECT id, name, category, city, phone, owner_telegram_id
+        SELECT id, name, category, city, phone, owner_telegram_id,
+               support_contact_mode, support_contact_value, faq_text
         FROM businesses
         WHERE owner_telegram_id = ?
         """,
@@ -26,7 +27,8 @@ def get_business_by_id(business_id):
 
     cursor.execute(
         """
-        SELECT id, name, category, city, phone, owner_telegram_id
+        SELECT id, name, category, city, phone, owner_telegram_id,
+               support_contact_mode, support_contact_value, faq_text
         FROM businesses
         WHERE id = ?
         """,
@@ -179,3 +181,37 @@ def build_business_prompt(business_id):
 """
 
     return prompt
+
+
+def set_business_contact(business_id, mode, value=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        UPDATE businesses
+        SET support_contact_mode = ?, support_contact_value = ?
+        WHERE id = ?
+        """,
+        (mode, value, business_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def set_business_faq(business_id, faq_text):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        UPDATE businesses
+        SET faq_text = ?
+        WHERE id = ?
+        """,
+        (faq_text, business_id)
+    )
+
+    conn.commit()
+    conn.close()
