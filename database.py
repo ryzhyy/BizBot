@@ -1,7 +1,8 @@
+import os
 import sqlite3
 
 
-DB_NAME = "bizbot_v06.db"
+DB_NAME = os.getenv("DB_PATH", "bizbot_v06.db")
 
 
 def get_connection():
