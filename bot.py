@@ -17,6 +17,10 @@ from services import (
     get_addservice_handler,
     get_services_handler,
 )
+from contact_settings import (
+    get_setcontact_handler,
+    get_setfaq_handler,
+)
 from bookings import (
     get_customer,
     get_or_create_customer,
@@ -88,6 +92,7 @@ OWNER_MENU_KEYBOARD = ReplyKeyboardMarkup(
     [
         ["📝 Мій бізнес", "➕ Додати послугу"],
         ["📋 Мої послуги", "❓ Допомога"],
+        ["⚙️ Контакт для клієнтів", "❓ Налаштувати FAQ"],
     ],
     resize_keyboard=True
 )
@@ -244,22 +249,57 @@ async def help_button(
 
     business = resolve_current_business(context, telegram_id)
 
-    phone = business["phone"] if business else None
+    contact_mode = business["support_contact_mode"] if business else None
+    contact_value = business["support_contact_value"] if business else None
 
-    contact_line = (
-        f"☎️ {phone}"
-        if phone
-        else "☎️ Телефон ще не вказано, зверніться через AI-чат"
+    contact_line = None
+
+    if contact_mode == "manual" and contact_value:
+        contact_line = f"☎️ {contact_value}"
+
+    elif business:
+        try:
+            owner_chat = await context.bot.get_chat(
+                business["owner_telegram_id"]
+            )
+
+            if owner_chat.username:
+                contact_line = (
+                    "👤 Написати власнику: "
+                    f"https://t.me/{owner_chat.username}"
+                )
+            else:
+                contact_line = (
+                    "👤 Написати власнику напряму: "
+                    f"tg://user?id={business['owner_telegram_id']}"
+                )
+
+        except Exception as error:
+            print("GET CHAT ERROR:", error)
+
+    if not contact_line:
+        phone = business["phone"] if business else None
+
+        contact_line = (
+            f"☎️ {phone}"
+            if phone
+            else "☎️ Телефон ще не вказано, зверніться через AI-чат"
+        )
+
+    faq_text = business["faq_text"] if business else None
+
+    faq_section = faq_text or (
+        "• Записатися — кнопка «✂️ Записатися» або напишіть, "
+        "наприклад «хочу стрижку завтра о 17:00»\n"
+        "• Скасувати запис — напишіть «скасуй мій запис»\n"
+        "• Перенести запис — напишіть «перенеси мій запис на ...»"
     )
 
     await update.message.reply_text(
         "🆘 Допомога\n\n"
         f"{contact_line}\n\n"
         "❓ FAQ:\n\n"
-        "• Записатися — кнопка «✂️ Записатися» або напишіть, "
-        "наприклад «хочу стрижку завтра о 17:00»\n"
-        "• Скасувати запис — напишіть «скасуй мій запис»\n"
-        "• Перенести запис — напишіть «перенеси мій запис на ...»"
+        f"{faq_section}"
     )
 
 
@@ -1711,6 +1751,8 @@ async def post_init(app):
         BotCommand("addservice", "Додати послугу"),
         BotCommand("services", "Мої послуги"),
         BotCommand("schedule", "Налаштувати графік роботи"),
+        BotCommand("setcontact", "Контакт для клієнтів"),
+        BotCommand("setfaq", "Налаштувати FAQ для клієнтів"),
         BotCommand("mylink", "Посилання для клієнтів"),
         BotCommand("mybookings", "Мої записи"),
         BotCommand("admin", "Панель власника"),
@@ -1740,6 +1782,14 @@ def main():
 
     app.add_handler(
         get_services_handler()
+    )
+
+    app.add_handler(
+        get_setcontact_handler()
+    )
+
+    app.add_handler(
+        get_setfaq_handler()
     )
 
     app.add_handler(

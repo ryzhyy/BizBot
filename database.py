@@ -125,6 +125,28 @@ def init_database():
             "ALTER TABLE services ADD COLUMN active INTEGER DEFAULT 1"
         )
 
+    # Migration: add support contact / FAQ columns to businesses
+    cursor.execute("PRAGMA table_info(businesses)")
+    business_columns = [row[1] for row in cursor.fetchall()]
+
+    if "support_contact_mode" not in business_columns:
+        cursor.execute(
+            "ALTER TABLE businesses "
+            "ADD COLUMN support_contact_mode TEXT DEFAULT 'auto'"
+        )
+
+    if "support_contact_value" not in business_columns:
+        cursor.execute(
+            "ALTER TABLE businesses "
+            "ADD COLUMN support_contact_value TEXT DEFAULT NULL"
+        )
+
+    if "faq_text" not in business_columns:
+        cursor.execute(
+            "ALTER TABLE businesses "
+            "ADD COLUMN faq_text TEXT DEFAULT NULL"
+        )
+
     conn.commit()
     conn.close()
 def set_business_schedule(
