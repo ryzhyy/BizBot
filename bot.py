@@ -13,6 +13,7 @@ from business_context import (
     get_or_create_service,
 )
 from services import (
+    services_list,
     get_addservice_handler,
     get_services_handler,
 )
@@ -29,7 +30,13 @@ from bookings import (
 from ai_manager import AIManager
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    Update,
+)
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -66,6 +73,210 @@ def resolve_current_business(context, telegram_id):
         return get_business_by_id(client_business_id)
 
     return get_business_by_owner(telegram_id)
+
+
+# =========================
+# REPLY KEYBOARDS
+# =========================
+
+OWNER_MENU_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        ["📝 Мій бізнес", "➕ Додати послугу"],
+        ["📋 Мої послуги", "❓ Допомога"],
+    ],
+    resize_keyboard=True
+)
+
+CLIENT_MENU_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        ["✂️ Записатися", "🧾 Послуги та ціни"],
+        ["📅 Мої записи", "❓ Допомога"],
+    ],
+    resize_keyboard=True
+)
+
+REPLY_MENU_BUTTON_TEXTS = [
+    "📝 Мій бізнес",
+    "📋 Мої послуги",
+    "✂️ Записатися",
+    "🧾 Послуги та ціни",
+    "📅 Мої записи",
+    "❓ Допомога",
+]
+
+
+async def start_booking(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    business = resolve_current_business(
+        context, update.effective_user.id
+    )
+
+    if not business:
+        await update.message.reply_text(
+            "⚠️ Не вдалося визначити бізнес для запису."
+        )
+        return
+
+    services = get_business_services(business["id"])
+
+    if not services:
+        await update.message.reply_text(
+            "😔 У цього бізнесу ще немає доданих послуг."
+        )
+        return
+
+    context.user_data["booking_business_id"] = business["id"]
+
+    keyboard = [
+        [InlineKeyboardButton(
+            f"✂️ {service['name']} — {service['price']} грн",
+            callback_data=f"service_{service['id']}"
+        )]
+        for service in services
+    ]
+
+    await update.message.reply_text(
+        "Оберіть послугу:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def show_business_services(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    business = resolve_current_business(
+        context, update.effective_user.id
+    )
+
+    if not business:
+        await update.message.reply_text(
+            "⚠️ Не вдалося визначити бізнес."
+        )
+        return
+
+    services = get_business_services(business["id"])
+
+    if not services:
+        await update.message.reply_text(
+            "😔 У цього бізнесу ще немає доданих послуг."
+        )
+        return
+
+    text = f"🧾 Послуги «{business['name']}»:\n\n"
+
+    for service in services:
+        text += f"✂️ {service['name']} — {service['price']} грн\n"
+
+    await update.message.reply_text(text)
+
+
+async def show_my_business(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    business = get_business_by_owner(update.effective_user.id)
+
+    if not business:
+        await update.message.reply_text(
+            "⚠️ У вас ще немає створеного бізнесу.\n\n"
+            "Спочатку створіть бізнес через /setup."
+        )
+        return
+
+    services = get_business_services(business["id"])
+
+    if services:
+        services_text = "\n".join(
+            f"✂️ {service['name']} — {service['price']} грн"
+            for service in services
+        )
+    else:
+        services_text = "Послуги ще не додані"
+
+    bot_username = context.bot.username
+
+    client_link = (
+        f"https://t.me/{bot_username}"
+        f"?start=business_{business['id']}"
+    )
+
+    active_bookings_count = len(
+        get_business_bookings(business["id"])
+    )
+
+    city = business["city"] or "не вказано"
+
+    await update.message.reply_text(
+        f"🏢 {business['name']}\n"
+        f"📍 {city}\n\n"
+        f"🧾 Послуги:\n{services_text}\n\n"
+        f"🔗 Посилання для клієнтів:\n{client_link}\n\n"
+        f"📊 Активних записів: {active_bookings_count}"
+    )
+
+
+async def help_button(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    telegram_id = update.effective_user.id
+    owned_business = get_business_by_owner(telegram_id)
+
+    if owned_business:
+        await update.message.reply_text(
+            "🆘 Підтримка\n\n"
+            "З питань роботи бота: @your_support_username\n\n"
+            "❓ FAQ власника:\n\n"
+            "• Додати послугу — кнопка «➕ Додати послугу» "
+            "або /addservice\n"
+            "• Отримати посилання для клієнтів — /mylink\n"
+            "• Переглянути свої записи — /admin"
+        )
+        return
+
+    business = resolve_current_business(context, telegram_id)
+
+    phone = business["phone"] if business else None
+
+    contact_line = (
+        f"☎️ {phone}"
+        if phone
+        else "☎️ Телефон ще не вказано, зверніться через AI-чат"
+    )
+
+    await update.message.reply_text(
+        "🆘 Допомога\n\n"
+        f"{contact_line}\n\n"
+        "❓ FAQ:\n\n"
+        "• Записатися — кнопка «✂️ Записатися» або напишіть, "
+        "наприклад «хочу стрижку завтра о 17:00»\n"
+        "• Скасувати запис — напишіть «скасуй мій запис»\n"
+        "• Перенести запис — напишіть «перенеси мій запис на ...»"
+    )
+
+
+async def reply_keyboard_router(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    text = update.message.text
+
+    if text == "📝 Мій бізнес":
+        await show_my_business(update, context)
+    elif text == "📋 Мої послуги":
+        await services_list(update, context)
+    elif text == "✂️ Записатися":
+        await start_booking(update, context)
+    elif text == "🧾 Послуги та ціни":
+        await show_business_services(update, context)
+    elif text == "📅 Мої записи":
+        await my_bookings_command(update, context)
+    elif text == "❓ Допомога":
+        await help_button(update, context)
+
 
 # =========================
 # MAIN MENU
@@ -129,6 +340,11 @@ async def start(
                     f"«Хочу стрижку завтра о 17:00»",
                     reply_markup=reply_markup
                 )
+
+                await update.message.reply_text(
+                    "Або скористайтесь меню нижче 👇",
+                    reply_markup=CLIENT_MENU_KEYBOARD
+                )
                 return
 
             except (ValueError, TypeError):
@@ -142,7 +358,8 @@ async def start(
         "👋 Вітаю у BizBot!\n\n"
         "Якщо ви власник бізнесу — використайте /setup.\n\n"
         "Якщо ви клієнт — відкрийте персональне "
-        "посилання потрібного бізнесу."
+        "посилання потрібного бізнесу.",
+        reply_markup=OWNER_MENU_KEYBOARD
     )
 
 # =========================
@@ -1433,11 +1650,25 @@ async def mylink(
         f"додайте в Instagram, TikTok чи на сайт."
     )
 
+async def post_init(app):
+    await app.bot.set_my_commands([
+        BotCommand("start", "Почати / головне меню"),
+        BotCommand("setup", "Створити свій бізнес"),
+        BotCommand("addservice", "Додати послугу"),
+        BotCommand("services", "Мої послуги"),
+        BotCommand("schedule", "Налаштувати графік роботи"),
+        BotCommand("mylink", "Посилання для клієнтів"),
+        BotCommand("mybookings", "Мої записи"),
+        BotCommand("admin", "Панель власника"),
+    ])
+
+
 def main():
     app = (
         Application
         .builder()
         .token(TOKEN)
+        .post_init(post_init)
         .build()
     )
 
@@ -1486,6 +1717,12 @@ def main():
     app.add_handler(
         CallbackQueryHandler(
             button_handler
+        )
+    )
+    app.add_handler(
+        MessageHandler(
+            filters.Text(REPLY_MENU_BUTTON_TEXTS),
+            reply_keyboard_router
         )
     )
     app.add_handler(

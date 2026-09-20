@@ -257,7 +257,11 @@ def get_addservice_handler():
             CommandHandler(
                 "addservice",
                 addservice_start
-            )
+            ),
+            MessageHandler(
+                filters.Text(["➕ Додати послугу"]),
+                addservice_start
+            ),
         ],
         states={
             SERVICE_NAME: [
