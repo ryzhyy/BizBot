@@ -147,6 +147,16 @@ def init_database():
             "ADD COLUMN faq_text TEXT DEFAULT NULL"
         )
 
+    # Migration: add reminder_sent column to bookings
+    cursor.execute("PRAGMA table_info(bookings)")
+    booking_columns = [row[1] for row in cursor.fetchall()]
+
+    if "reminder_sent" not in booking_columns:
+        cursor.execute(
+            "ALTER TABLE bookings "
+            "ADD COLUMN reminder_sent INTEGER DEFAULT 0"
+        )
+
     conn.commit()
     conn.close()
 def set_business_schedule(
