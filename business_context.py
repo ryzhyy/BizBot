@@ -157,7 +157,7 @@ def build_business_prompt(business_id):
     cursor.execute(
         """
         SELECT id, name, category, city, phone,
-               support_contact_mode, support_contact_value
+               support_contact_mode, support_contact_value, faq_text
         FROM businesses
         WHERE id = ?
         """,
@@ -220,6 +220,8 @@ def build_business_prompt(business_id):
     else:
         contact = business["phone"] or "не вказано"
 
+    faq_text = business["faq_text"] or "- FAQ ще не наповнено власником\n"
+
     city = business["city"] or "не вказано"
     category = business["category"] or "не вказано"
 
@@ -241,6 +243,10 @@ def build_business_prompt(business_id):
 
 {working_hours_text}
 
+FAQ (відповіді, які власник підготував заздалегідь):
+
+{faq_text}
+
 ПРАВИЛА:
 
 - Відповідай українською.
@@ -249,6 +255,8 @@ def build_business_prompt(business_id):
   про цей бізнес.
 - Не вигадуй послуги, ціни, адресу, контакт
   або години роботи.
+- Якщо в FAQ є відповідь, що стосується
+  запитання клієнта, спирайся саме на неї.
 - Якщо інформації немає, прямо скажи,
   що вона ще не вказана.
 - Якщо клієнт запитує ціну, використовуй
