@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from telegram import Update
 from telegram.ext import (
     CommandHandler,
@@ -99,6 +101,7 @@ async def save_schedule(
     }
 
     saved = 0
+    errors = []
 
     try:
         for line in lines:
@@ -132,10 +135,23 @@ async def save_schedule(
                 .replace("—", "-")
             )
 
-            start_time, end_time = [
+            time_parts = [
                 x.strip()
                 for x in normalized.split("-", 1)
             ]
+
+            if len(time_parts) != 2:
+                errors.append(DAY_NAMES[weekday])
+                continue
+
+            start_time, end_time = time_parts
+
+            try:
+                datetime.strptime(start_time, "%H:%M")
+                datetime.strptime(end_time, "%H:%M")
+            except ValueError:
+                errors.append(DAY_NAMES[weekday])
+                continue
 
             set_working_hours(
                 business_id,
@@ -160,12 +176,22 @@ async def save_schedule(
 
         return WAITING_SCHEDULE
 
-    if saved == 0:
+    if saved == 0 and not errors:
         await update.message.reply_text(
             "⚠️ Я не знайшов жодного дня.\n\n"
             "Напишіть, наприклад:\n"
             "Пн 09:00-18:00"
         )
+        return WAITING_SCHEDULE
+
+    if errors:
+        await update.message.reply_text(
+            "⚠️ Не вдалося розпізнати графік для: "
+            f"{', '.join(errors)}\n"
+            "Перевірте формат — приклад: Пн 09:00-18:00"
+        )
+
+    if saved == 0:
         return WAITING_SCHEDULE
 
     rows = get_working_hours(business_id)
