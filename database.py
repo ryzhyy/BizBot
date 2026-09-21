@@ -147,6 +147,24 @@ def init_database():
             "ADD COLUMN faq_text TEXT DEFAULT NULL"
         )
 
+    if "latitude" not in business_columns:
+        cursor.execute(
+            "ALTER TABLE businesses "
+            "ADD COLUMN latitude REAL DEFAULT NULL"
+        )
+
+    if "longitude" not in business_columns:
+        cursor.execute(
+            "ALTER TABLE businesses "
+            "ADD COLUMN longitude REAL DEFAULT NULL"
+        )
+
+    if "address_text" not in business_columns:
+        cursor.execute(
+            "ALTER TABLE businesses "
+            "ADD COLUMN address_text TEXT DEFAULT NULL"
+        )
+
     # Migration: add reminder_sent column to bookings
     cursor.execute("PRAGMA table_info(bookings)")
     booking_columns = [row[1] for row in cursor.fetchall()]

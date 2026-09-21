@@ -1,3 +1,5 @@
+import urllib.parse
+
 from database import get_connection
 
 
@@ -8,7 +10,8 @@ def get_business_by_owner(owner_telegram_id):
     cursor.execute(
         """
         SELECT id, name, category, city, phone, owner_telegram_id,
-               support_contact_mode, support_contact_value, faq_text
+               support_contact_mode, support_contact_value, faq_text,
+               latitude, longitude, address_text
         FROM businesses
         WHERE owner_telegram_id = ?
         """,
@@ -28,7 +31,8 @@ def get_business_by_id(business_id):
     cursor.execute(
         """
         SELECT id, name, category, city, phone, owner_telegram_id,
-               support_contact_mode, support_contact_value, faq_text
+               support_contact_mode, support_contact_value, faq_text,
+               latitude, longitude, address_text
         FROM businesses
         WHERE id = ?
         """,
@@ -236,3 +240,41 @@ def set_business_faq(business_id, faq_text):
 
     conn.commit()
     conn.close()
+
+
+def set_business_location(
+    business_id, latitude=None, longitude=None, address_text=None
+):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        UPDATE businesses
+        SET latitude = ?, longitude = ?, address_text = ?
+        WHERE id = ?
+        """,
+        (latitude, longitude, address_text, business_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def get_business_maps_link(business):
+    if not business:
+        return None
+
+    if business["latitude"] is not None and business["longitude"] is not None:
+        return (
+            f"https://maps.google.com/?q="
+            f"{business['latitude']},{business['longitude']}"
+        )
+
+    if business["address_text"]:
+        return (
+            "https://maps.google.com/?q="
+            f"{urllib.parse.quote(business['address_text'])}"
+        )
+
+    return None
