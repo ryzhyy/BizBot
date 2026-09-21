@@ -1,6 +1,9 @@
 import urllib.parse
 
-from database import get_connection
+from database import get_connection, get_working_hours
+
+
+DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
 
 
 def get_business_by_owner(owner_telegram_id):
@@ -156,6 +159,8 @@ def build_business_prompt(business_id):
 
     conn.close()
 
+    working_hours = get_working_hours(business_id)
+
     if not business:
         return None
 
@@ -170,6 +175,20 @@ def build_business_prompt(business_id):
             )
     else:
         services_text = "- Послуги ще не додані\n"
+
+    working_hours_text = ""
+
+    if working_hours:
+        for row in working_hours:
+            day = DAY_NAMES[row["weekday"]]
+            if row["is_open"]:
+                working_hours_text += (
+                    f"- {day}: {row['start_time']}–{row['end_time']}\n"
+                )
+            else:
+                working_hours_text += f"- {day}: вихідний\n"
+    else:
+        working_hours_text = "- Графік роботи ще не вказано\n"
 
     phone = business["phone"] or "не вказано"
     city = business["city"] or "не вказано"
@@ -188,6 +207,10 @@ def build_business_prompt(business_id):
 ПОСЛУГИ:
 
 {services_text}
+
+ГРАФІК РОБОТИ:
+
+{working_hours_text}
 
 ПРАВИЛА:
 
