@@ -48,6 +48,7 @@ from telegram import (
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
     Update,
 )
 from telegram.helpers import escape_markdown
@@ -547,12 +548,22 @@ async def start(
     # прибираємо попередній client-контекст, якщо він був
     context.user_data.pop("client_business_id", None)
 
+    owned_business = get_business_by_owner(update.effective_user.id)
+
+    if owned_business:
+        await update.message.reply_text(
+            "👋 Вітаю у BizBot!\n\n"
+            "Оберіть дію нижче 👇",
+            reply_markup=OWNER_MENU_KEYBOARD
+        )
+        return
+
     await update.message.reply_text(
         "👋 Вітаю у BizBot!\n\n"
         "Якщо ви власник бізнесу — використайте /setup.\n\n"
         "Якщо ви клієнт — відкрийте персональне "
         "посилання потрібного бізнесу.",
-        reply_markup=OWNER_MENU_KEYBOARD
+        reply_markup=ReplyKeyboardRemove()
     )
 
 # =========================
