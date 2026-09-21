@@ -654,7 +654,7 @@ async def admin(
 
     await update.message.reply_text(
         "👑 ПАНЕЛЬ ВЛАСНИКА\n\n"
-        f"Усього записів: {len(bookings)}"
+        f"Майбутні записи: {len(bookings)}"
     )
 
     for booking in bookings:
