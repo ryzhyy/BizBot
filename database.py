@@ -239,6 +239,24 @@ def init_database():
             "ADD COLUMN reminder_sent INTEGER DEFAULT 0"
         )
 
+    # Indexes for the columns hit on every booking/AI-context lookup.
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_businesses_owner_telegram_id "
+        "ON businesses(owner_telegram_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bookings_business_date_status "
+        "ON bookings(business_id, booking_date, status)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bookings_business_customer "
+        "ON bookings(business_id, customer_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_customers_business_telegram "
+        "ON customers(business_id, telegram_id)"
+    )
+
     conn.commit()
     conn.close()
 def set_business_schedule(
