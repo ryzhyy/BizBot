@@ -3,6 +3,9 @@ from datetime import datetime
 
 from openai import AsyncOpenAI
 
+from business_context import get_business_services
+
+
 class AIManager:
 
     def __init__(self, api_key):
@@ -11,7 +14,8 @@ class AIManager:
     async def understand_message(
         self,
         user_text,
-        conversation_state=None
+        conversation_state=None,
+        business_id=None
     ):
 
         if conversation_state is None:
@@ -20,9 +24,20 @@ class AIManager:
         today = datetime.now().strftime("%Y-%m-%d")
         weekday = datetime.now().strftime("%A")
 
+        services = get_business_services(business_id) if business_id else []
+
+        if services:
+            services_block = "\n".join(
+                f"- service_id={service['id']}: "
+                f"{service['name']} — {service['price']} грн"
+                for service in services
+            )
+        else:
+            services_block = "- Послуги ще не завантажені"
+
         prompt = f"""
 Ти модуль розуміння повідомлень для системи бронювання
-барбершопу.
+послуг бізнесу.
 
 Сьогодні: {today}
 День тижня: {weekday}
@@ -69,9 +84,9 @@ new_time = новий бажаний час, якщо користувач йо�
 -> old_date = завтра
 -> new_time = "17:00"
 
-"перенеси мою стрижку в понеділок з 4 на 5"
+"перенеси мою послугу в понеділок з 4 на 5"
 -> intent = reschedule_booking
--> service = haircut
+-> service = service_id послуги, якщо користувач її назвав, інакше null
 -> old_date = понеділок
 -> old_time = "16:00"
 -> new_date = понеділок
@@ -122,8 +137,9 @@ new_time = новий бажаний час, якщо користувач йо�
 "скасуй записи завтра"
 -> intent = cancel_booking, date = завтрашня дата
 
-"скасуй стрижку сьогодні"
--> intent = cancel_booking, service = haircut, date = сьогоднішня дата
+"скасуй мою послугу сьогодні"
+-> intent = cancel_booking, service = service_id послуги,
+   якщо користувач її назвав, date = сьогоднішня дата
 
 "скасуй запис на 16:00"
 -> intent = cancel_booking, time = "16:00"
@@ -131,11 +147,10 @@ new_time = новий бажаний час, якщо користувач йо�
 "скасуй всі записи"
 -> intent = cancel_booking
 
-Послуги:
+Послуги цього бізнесу (використовуй лише ці service_id,
+які є ЦІЛИМИ ЧИСЛАМИ):
 
-haircut = Стрижка
-beard = Борода
-combo = Стрижка + борода
+{services_block}
 
 Поверни ТІЛЬКИ JSON такого формату:
 
@@ -202,10 +217,14 @@ new_time = null
 
 1. Не вигадуй відсутню інформацію.
 2. Якщо значення невідоме — null.
-3. "підстригтися" означає haircut.
-4. "борода" означає beard.
-5. "стрижка і борода" означає combo.
-6. Розумій:
+3. Поле "service" — це ЗАВЖДИ service_id (ціле число) з переліку
+   послуг бізнесу вище, або null, якщо клієнт не назвав послугу
+   чи вона не збігається з жодною з переліку. Ніколи не вигадуй
+   service_id, якого немає в переліку.
+4. Якщо клієнт описав послугу словами (наприклад "постригтися",
+   "зробити зачіску", "манікюр" тощо) — знайди найбільш відповідну
+   послугу з переліку вище за змістом назви та поверни її service_id.
+5. Розумій:
    сьогодні,
    завтра,
    післязавтра,
@@ -215,9 +234,9 @@ new_time = null
    четвер,
    п'ятницю,
    суботу.
-7. "після 16" означає after_time = "16:00".
-8. "о 16" означає time = "16:00".
-9. Якщо користувач відповідає лише часом,
+6. "після 16" означає after_time = "16:00".
+7. "о 16" означає time = "16:00".
+8. Якщо користувач відповідає лише часом,
 intent = choose_time.
 Якщо написано "1" -> time = "13:00".
 Якщо написано "2" -> time = "14:00".
@@ -229,17 +248,17 @@ intent = choose_time.
 Якщо написано "14", "16", "18" то це відповідно
 "14:00", "16:00", "18:00".
 Не втрачай service і date з поточного стану розмови.
-10. "так", "підтверджую", "давай"
+9. "так", "підтверджую", "давай"
     можуть означати confirm, якщо перед цим
     уже сформований запис.
-11. "ні", "скасувати", "відміна"
+10. "ні", "скасувати", "відміна"
     означають cancel.
-12. Якщо користувач хоче скасувати ВЖЕ ІСНУЮЧИЙ запис,
+11. Якщо користувач хоче скасувати ВЖЕ ІСНУЮЧИЙ запис,
 наприклад:
 "скасуй мій запис",
 "відміни мій запис",
 "видали мій запис",
-"не прийду на стрижку",
+"не прийду на послугу",
 "скасуй запис у понеділок",
 то intent = cancel_booking.
 
@@ -247,7 +266,7 @@ intent = choose_time.
 наприклад "ні", "скасувати", "відміна",
 то intent = cancel.
 
-13. Поверни тільки валідний JSON.
+12. Поверни тільки валідний JSON.
 """
 
         response = await self.client.responses.create(
