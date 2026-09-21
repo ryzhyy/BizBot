@@ -7,7 +7,7 @@ from telegram.ext import (
     filters,
 )
 
-from database import get_connection
+from database import get_connection, generate_unique_slug
 
 
 NAME, CATEGORY, CITY = range(3)
@@ -93,17 +93,20 @@ async def setup_city(
     conn = get_connection()
     cursor = conn.cursor()
 
+    slug = generate_unique_slug(cursor, name)
+
     cursor.execute(
         """
         INSERT INTO businesses
-        (owner_telegram_id, name, category, city)
-        VALUES (?, ?, ?, ?)
+        (owner_telegram_id, name, category, city, slug)
+        VALUES (?, ?, ?, ?, ?)
         """,
         (
             owner_id,
             name,
             category,
-            city
+            city,
+            slug
         )
     )
 

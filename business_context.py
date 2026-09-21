@@ -14,7 +14,7 @@ def get_business_by_owner(owner_telegram_id):
         """
         SELECT id, name, category, city, phone, owner_telegram_id,
                support_contact_mode, support_contact_value, faq_text,
-               latitude, longitude, address_text
+               latitude, longitude, address_text, slug
         FROM businesses
         WHERE owner_telegram_id = ?
         """,
@@ -35,11 +35,32 @@ def get_business_by_id(business_id):
         """
         SELECT id, name, category, city, phone, owner_telegram_id,
                support_contact_mode, support_contact_value, faq_text,
-               latitude, longitude, address_text
+               latitude, longitude, address_text, slug
         FROM businesses
         WHERE id = ?
         """,
         (business_id,)
+    )
+
+    business = cursor.fetchone()
+    conn.close()
+
+    return business
+
+
+def get_business_by_slug(slug):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id, name, category, city, phone, owner_telegram_id,
+               support_contact_mode, support_contact_value, faq_text,
+               latitude, longitude, address_text, slug
+        FROM businesses
+        WHERE slug = ?
+        """,
+        (slug,)
     )
 
     business = cursor.fetchone()

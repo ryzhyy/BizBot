@@ -9,6 +9,7 @@ from business_context import (
     build_business_prompt,
     get_business_by_owner,
     get_business_by_id,
+    get_business_by_slug,
     get_business_services,
     get_service_by_id,
     get_business_maps_link,
@@ -222,7 +223,7 @@ async def show_my_business(
 
     client_link = (
         f"https://t.me/{bot_username}"
-        f"?start=business_{business['id']}"
+        f"?start={business['slug']}"
     )
 
     active_bookings_count = len(
@@ -470,79 +471,67 @@ async def start(
     context: ContextTypes.DEFAULT_TYPE
 ):
     # Перевіряємо deep-link:
-    # /start business_1
+    # /start <slug>
     if context.args:
-        start_parameter = context.args[0]
+        slug = context.args[0]
 
-        if start_parameter.startswith("business_"):
-            try:
-                business_id = int(
-                    start_parameter.replace("business_", "")
+        business = get_business_by_slug(slug)
+
+        if not business:
+            await update.message.reply_text(
+                "⚠️ Цей бізнес не знайдено."
+            )
+            return
+
+        # Запам'ятовуємо, до якого бізнесу
+        # підключений цей клієнт
+        context.user_data["client_business_id"] = business["id"]
+
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "✂️ Записатися",
+                    callback_data="book"
                 )
-
-                business = get_business_by_id(business_id)
-
-                if not business:
-                    await update.message.reply_text(
-                        "⚠️ Цей бізнес не знайдено."
-                    )
-                    return
-
-                # Запам'ятовуємо, до якого бізнесу
-                # підключений цей клієнт
-                context.user_data["client_business_id"] = business_id
-
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            "✂️ Записатися",
-                            callback_data="book"
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "🧾 Послуги та ціни",
-                            callback_data="services"
-                        ),
-                        InlineKeyboardButton(
-                            "📅 Мої записи",
-                            callback_data="mybookings"
-                        )
-                    ]
-                ]
-
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-                maps_link = get_business_maps_link(business)
-
-                location_line = (
-                    f"📍 Ми тут: {maps_link}\n\n"
-                    if maps_link else ""
+            ],
+            [
+                InlineKeyboardButton(
+                    "🧾 Послуги та ціни",
+                    callback_data="services"
+                ),
+                InlineKeyboardButton(
+                    "📅 Мої записи",
+                    callback_data="mybookings"
                 )
+            ]
+        ]
 
-                await update.message.reply_text(
-                    f"👋 Вітаємо у «{business['name']}»!\n\n"
-                    f"✨ Я ваш персональний AI-асистент.\n\n"
-                    f"Допоможу обрати послугу, дізнатися ціну "
-                    f"та знайти зручний час для запису.\n\n"
-                    f"{location_line}"
-                    f"Оберіть дію нижче 👇\n\n"
-                    f"💬 Або просто напишіть мені, наприклад:\n"
-                    f"«Хочу стрижку завтра о 17:00»",
-                    reply_markup=reply_markup
-                )
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-                await update.message.reply_text(
-                    "Або скористайтесь меню нижче 👇",
-                    reply_markup=CLIENT_MENU_KEYBOARD
-                )
-                return
+        maps_link = get_business_maps_link(business)
 
-            except (ValueError, TypeError):
-                await update.message.reply_text(
-                    "⚠️ Некоректне посилання на бізнес."
-                )
-                return
+        location_line = (
+            f"📍 Ми тут: {maps_link}\n\n"
+            if maps_link else ""
+        )
+
+        await update.message.reply_text(
+            f"👋 Вітаємо у «{business['name']}»!\n\n"
+            f"✨ Я ваш персональний AI-асистент.\n\n"
+            f"Допоможу обрати послугу, дізнатися ціну "
+            f"та знайти зручний час для запису.\n\n"
+            f"{location_line}"
+            f"Оберіть дію нижче 👇\n\n"
+            f"💬 Або просто напишіть мені, наприклад:\n"
+            f"«Хочу стрижку завтра о 17:00»",
+            reply_markup=reply_markup
+        )
+
+        await update.message.reply_text(
+            "Або скористайтесь меню нижче 👇",
+            reply_markup=CLIENT_MENU_KEYBOARD
+        )
+        return
 
     # Звичайний /start без business ID —
     # прибираємо попередній client-контекст, якщо він був
@@ -715,13 +704,12 @@ async def button_handler(
             )
             return
 
-        business_id = business["id"]
         business_name = business["name"]
 
         bot_info = await context.bot.get_me()
         client_link = (
             f"https://t.me/{bot_info.username}"
-            f"?start=business_{business_id}"
+            f"?start={business['slug']}"
         )
 
         await query.message.reply_text(
@@ -1913,13 +1901,11 @@ async def mylink(
         )
         return
 
-    business_id = business["id"]
-
     bot_username = context.bot.username
 
     client_link = (
         f"https://t.me/{bot_username}"
-        f"?start=business_{business_id}"
+        f"?start={business['slug']}"
     )
 
     await update.message.reply_text(
