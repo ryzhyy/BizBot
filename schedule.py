@@ -189,6 +189,14 @@ async def save_schedule(
     return ConversationHandler.END
 
 
+async def schedule_cancel(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    await update.message.reply_text("❌ Скасовано.")
+    return ConversationHandler.END
+
+
 def get_schedule_handler():
     return ConversationHandler(
         entry_points=[
@@ -205,5 +213,7 @@ def get_schedule_handler():
                 )
             ]
         },
-        fallbacks=[],
+        fallbacks=[
+            CommandHandler("cancel", schedule_cancel),
+        ],
     )
