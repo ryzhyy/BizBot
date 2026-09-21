@@ -3,6 +3,32 @@ from datetime import datetime, timedelta
 from database import get_connection, get_working_hours
 
 
+# Free-tier businesses can accept this many confirmed bookings per
+# calendar day through the bot. Raise/bypass this once paid plans
+# exist.
+FREE_DAILY_BOOKING_LIMIT = 1
+
+
+def is_daily_free_limit_reached(business_id, booking_date):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS count FROM bookings
+        WHERE business_id = ?
+          AND booking_date = ?
+          AND status = 'confirmed'
+        """,
+        (business_id, booking_date)
+    )
+
+    count = cursor.fetchone()["count"]
+    conn.close()
+
+    return count >= FREE_DAILY_BOOKING_LIMIT
+
+
 def get_customer(business_id, telegram_id):
     conn = get_connection()
     cursor = conn.cursor()
