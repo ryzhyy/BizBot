@@ -61,6 +61,27 @@ def get_business_services(business_id):
     return services
 
 
+def get_service_by_id(service_id, business_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id, name, price, duration
+        FROM services
+        WHERE id = ?
+          AND business_id = ?
+          AND active = 1
+        """,
+        (service_id, business_id)
+    )
+
+    service = cursor.fetchone()
+    conn.close()
+
+    return service
+
+
 def get_or_create_service(business_id, name, price=0, duration=0):
     conn = get_connection()
     cursor = conn.cursor()

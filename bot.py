@@ -10,7 +10,7 @@ from business_context import (
     get_business_by_owner,
     get_business_by_id,
     get_business_services,
-    get_or_create_service,
+    get_service_by_id,
 )
 from services import (
     services_list,
@@ -1124,10 +1124,18 @@ async def ai_message(
         # Пам'ять поточної розмови
         state = context.user_data.get("ai_state", {})
 
+        current_business = resolve_current_business(
+            context, update.effective_user.id
+        )
+        current_business_id = (
+            current_business["id"] if current_business else None
+        )
+
         # AI перетворює людську мову на структуровані дані
         result = await ai_manager.understand_message(
             user_text,
-            state
+            state,
+            business_id=current_business_id
         )
 
         print("AI UNDERSTOOD:", result)
@@ -1210,12 +1218,6 @@ async def ai_message(
         time = state.get("time")
         after_time = state.get("after_time")
 
-        service_names = {
-            "haircut": "Стрижка",
-            "beard": "Борода",
-            "combo": "Стрижка + борода"
-        }
-    
         # -----------------------------
         # МОЇ ЗАПИСИ
         # -----------------------------
@@ -1308,7 +1310,15 @@ async def ai_message(
 
             # Фільтруємо за послугою
             if service:
-                expected_service = service_names.get(service, service)
+                expected_service = None
+
+                if business:
+                    found_service = get_service_by_id(
+                        service, business["id"]
+                    )
+                    expected_service = (
+                        found_service["name"] if found_service else None
+                    )
 
                 bookings = [
                     b for b in bookings
@@ -1339,13 +1349,8 @@ async def ai_message(
             for booking in bookings:
                 booking_id, booking_service, booking_date, booking_time = booking
 
-                name = service_names.get(
-                    booking_service,
-                    booking_service
-                )
-
                 text += (
-                    f"✂️ {name}\n"
+                    f"✂️ {booking_service}\n"
                     f"📅 {booking_date}\n"
                     f"🕒 {booking_time}\n\n"
                 )
@@ -1379,6 +1384,14 @@ async def ai_message(
             )
 
             # Шукаємо запис, який користувач хоче перенести
+            expected_service = None
+
+            if service and business:
+                found_service = get_service_by_id(service, business["id"])
+                expected_service = (
+                    found_service["name"] if found_service else None
+                )
+
             matching_bookings = []
 
             for booking in bookings:
@@ -1387,11 +1400,8 @@ async def ai_message(
                 if date and booking_date != date:
                     continue
 
-                if service:
-                    expected_service = service_names.get(service, service)
-
-                    if booking_service != expected_service:
-                        continue
+                if service and booking_service != expected_service:
+                    continue
 
                 matching_bookings.append(booking)
 
@@ -1446,11 +1456,9 @@ async def ai_message(
                 "new_time": new_time
             }
 
-            name = service_names.get(old_service, old_service)
-
             await update.message.reply_text(
                 f"🔄 Перенести запис?\n\n"
-                f"✂️ {name}\n"
+                f"✂️ {old_service}\n"
                 f"📅 {old_date} о {old_time}\n"
                 f"⬇️\n"
                 f"📅 {new_date} о {new_time}\n\n"
@@ -1533,10 +1541,16 @@ async def ai_message(
 
             user = update.effective_user
 
-            confirm_service = get_or_create_service(
-                confirm_business["id"],
-                service_names.get(service, service)
+            confirm_service = get_service_by_id(
+                service, confirm_business["id"]
             )
+
+            if not confirm_service:
+                await update.message.reply_text(
+                    "⚠️ Не вдалося знайти обрану послугу. "
+                    "Спробуйте ще раз."
+                )
+                return
 
             confirm_customer_id = get_or_create_customer(
                 confirm_business["id"], user.id, user.full_name
@@ -1554,14 +1568,14 @@ async def ai_message(
                 context,
                 confirm_business,
                 user.full_name,
-                service_names.get(service, service),
+                confirm_service["name"],
                 date,
                 time
             )
 
             await update.message.reply_text(
                 "✅ Готово! Ви записані.\n\n"
-                f"✂️ {service_names.get(service, service)}\n"
+                f"✂️ {confirm_service['name']}\n"
                 f"📅 {date}\n"
                 f"🕐 {time}\n\n"
                 "До зустрічі! 👋"
@@ -1599,12 +1613,23 @@ async def ai_message(
                 )
                 return
 
+            choose_time_service = get_service_by_id(
+                service, choose_time_business["id"]
+            )
+
+            if not choose_time_service:
+                await update.message.reply_text(
+                    "⚠️ Не вдалося знайти обрану послугу. "
+                    "Спробуйте ще раз."
+                )
+                return
+
             state["time"] = time
             context.user_data["ai_state"] = state
 
             await update.message.reply_text(
                 "📋 Підтверджуємо запис?\n\n"
-                f"✂️ {service_names.get(service, service)}\n"
+                f"✂️ {choose_time_service['name']}\n"
                 f"📅 {date}\n"
                 f"🕐 {time}\n\n"
                 "Напишіть «так» для підтвердження."
@@ -1617,19 +1642,6 @@ async def ai_message(
 
         if intent == "booking":
 
-            if not service:
-                await update.message.reply_text(
-                    "✂️ Що бажаєте зробити?\n\n"
-                    "Стрижка — 500 грн\n"
-                    "Борода — 300 грн\n"
-                    "Стрижка + борода — 700 грн"
-                )
-
-                state["date"] = date
-                state["time"] = time
-                context.user_data["ai_state"] = state
-                return
-
             # Визначаємо бізнес
             business = resolve_current_business(
                 context, update.effective_user.id
@@ -1637,26 +1649,32 @@ async def ai_message(
 
             if not business:
                 await update.message.reply_text(
-                    "⚠️Не вдалося визначити бізнес для запису."
+                    "⚠️ Не вдалося визначити бізнес для запису."
                 )
                 return
 
             if not service:
+                booking_services = get_business_services(business["id"])
+
+                if booking_services:
+                    services_text = "\n".join(
+                        f"✂️ {s['name']} — {s['price']} грн"
+                        for s in booking_services
+                    )
+                else:
+                    services_text = (
+                        "😔 У цього бізнесу ще немає доданих послуг."
+                    )
+
                 await update.message.reply_text(
-                    "Що бажаєте зробити?\n\n"
-                    "✂️Стрижка\n"
-                    "🧔Борода\n"
-                    "✂️Стрижка + борода"
+                    f"✂️ Що бажаєте зробити?\n\n{services_text}"
                 )
+
+                state["date"] = date
+                state["time"] = time
+                context.user_data["ai_state"] = state
                 return
 
-            if not date:
-                await update.message.reply_text(
-                    "На який день хочете записатися?"
-                )
-                return
-
-            # Якщо дату ще не визначено
             if not date:
                 await update.message.reply_text(
                     "На який день хочете записатися?"
@@ -1735,6 +1753,32 @@ async def ai_message(
                 await update.message.reply_text(
                     "😔 На цей день відповідного "
                     "вільного часу немає."
+                )
+                return
+
+            # Якщо клієнт одразу назвав конкретний вільний час —
+            # не показуємо повний список, а одразу йдемо на підтвердження
+            if time and time in available_times:
+                booking_service = get_service_by_id(
+                    service, business["id"]
+                )
+
+                if not booking_service:
+                    await update.message.reply_text(
+                        "⚠️ Не вдалося знайти обрану послугу. "
+                        "Спробуйте ще раз."
+                    )
+                    return
+
+                state["time"] = time
+                context.user_data["ai_state"] = state
+
+                await update.message.reply_text(
+                    "📋 Підтверджуємо запис?\n\n"
+                    f"✂️ {booking_service['name']}\n"
+                    f"📅 {date}\n"
+                    f"🕐 {time}\n\n"
+                    "Напишіть «так» для підтвердження."
                 )
                 return
 
