@@ -356,7 +356,8 @@ async def reply_keyboard_router(
 
 
 async def notify_owner_of_booking(
-    context, business, customer_name, service_name, date, time
+    context, business, customer_name, service_name, date, time,
+    customer_phone=None
 ):
     if not business:
         return
@@ -366,12 +367,15 @@ async def notify_owner_of_booking(
     if not owner_telegram_id:
         return
 
+    phone_line = f"📱 {customer_phone}\n" if customer_phone else ""
+
     try:
         await context.bot.send_message(
             chat_id=owner_telegram_id,
             text=(
                 "🔔 Новий запис!\n\n"
                 f"👤 {customer_name}\n"
+                f"{phone_line}"
                 f"✂️ {service_name}\n"
                 f"📅 {date}\n"
                 f"🕒 {time}"
@@ -432,13 +436,17 @@ async def finalize_booking(
         time
     )
 
+    customer = get_customer(business["id"], user.id)
+    customer_phone = customer["phone"] if customer else None
+
     await notify_owner_of_booking(
         context,
         business,
         user.full_name,
         service_name,
         date,
-        time
+        time,
+        customer_phone=customer_phone
     )
 
     await context.bot.send_message(
