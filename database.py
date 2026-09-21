@@ -1,14 +1,51 @@
 import os
+import re
 import sqlite3
 
 
 DB_NAME = os.getenv("DB_PATH", "bizbot_v06.db")
+
+_TRANSLIT_MAP = {
+    "а": "a", "б": "b", "в": "v", "г": "h", "ґ": "g", "д": "d",
+    "е": "e", "є": "ie", "ж": "zh", "з": "z", "и": "y", "і": "i",
+    "ї": "i", "й": "i", "к": "k", "л": "l", "м": "m", "н": "n",
+    "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch",
+    "ь": "", "ю": "iu", "я": "ia", "'": "", "’": "", "`": "",
+}
 
 
 def get_connection():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def slugify(name):
+    lowered = (name or "").lower()
+    transliterated = "".join(
+        _TRANSLIT_MAP.get(char, char) for char in lowered
+    )
+    slug = re.sub(r"[^a-z0-9]+", "-", transliterated).strip("-")
+    return slug[:40] or "business"
+
+
+def generate_unique_slug(cursor, name):
+    base_slug = slugify(name)
+    slug = base_slug
+    suffix = 2
+
+    while True:
+        cursor.execute(
+            "SELECT 1 FROM businesses WHERE slug = ?",
+            (slug,)
+        )
+
+        if not cursor.fetchone():
+            return slug
+
+        slug = f"{base_slug}-{suffix}"
+        suffix += 1
 
 
 def init_database():
@@ -164,6 +201,30 @@ def init_database():
             "ALTER TABLE businesses "
             "ADD COLUMN address_text TEXT DEFAULT NULL"
         )
+
+    if "slug" not in business_columns:
+        cursor.execute(
+            "ALTER TABLE businesses "
+            "ADD COLUMN slug TEXT DEFAULT NULL"
+        )
+
+    # Backfill: generate a slug for businesses that don't have one yet
+    cursor.execute(
+        "SELECT id, name FROM businesses WHERE slug IS NULL"
+    )
+    businesses_missing_slug = cursor.fetchall()
+
+    for row in businesses_missing_slug:
+        slug = generate_unique_slug(cursor, row["name"])
+        cursor.execute(
+            "UPDATE businesses SET slug = ? WHERE id = ?",
+            (slug, row["id"])
+        )
+
+    cursor.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_businesses_slug "
+        "ON businesses(slug)"
+    )
 
     # Migration: add reminder_sent column to bookings
     cursor.execute("PRAGMA table_info(bookings)")
