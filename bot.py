@@ -50,6 +50,7 @@ from telegram import (
     ReplyKeyboardMarkup,
     Update,
 )
+from telegram.helpers import escape_markdown
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -229,12 +230,24 @@ async def show_my_business(
 
     city = business["city"] or "не вказано"
 
+    maps_link = get_business_maps_link(business)
+
+    city_display = (
+        f"[{escape_markdown(city, version=1)}]({maps_link})"
+        if maps_link else escape_markdown(city, version=1)
+    )
+
+    business_name = escape_markdown(business["name"], version=1)
+    services_text = escape_markdown(services_text, version=1)
+    client_link_text = escape_markdown(client_link, version=1)
+
     await update.message.reply_text(
-        f"🏢 {business['name']}\n"
-        f"📍 {city}\n\n"
+        f"🏢 {business_name}\n"
+        f"📍 {city_display}\n\n"
         f"🧾 Послуги:\n{services_text}\n\n"
-        f"🔗 Посилання для клієнтів:\n{client_link}\n\n"
-        f"📊 Активних записів: {active_bookings_count}"
+        f"🔗 Посилання для клієнтів:\n{client_link_text}\n\n"
+        f"📊 Активних записів: {active_bookings_count}",
+        parse_mode="Markdown"
     )
 
 
