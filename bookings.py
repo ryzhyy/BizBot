@@ -227,6 +227,8 @@ def get_customer_bookings(business_id, customer_id):
 
 
 def get_business_bookings(business_id):
+    today = datetime.now().strftime("%Y-%m-%d")
+
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -242,9 +244,10 @@ def get_business_bookings(business_id):
         JOIN services ON services.id = bookings.service_id
         WHERE bookings.business_id = ?
           AND bookings.status = 'confirmed'
+          AND bookings.booking_date >= ?
         ORDER BY bookings.booking_date, bookings.booking_time
         """,
-        (business_id,)
+        (business_id, today)
     )
 
     rows = cursor.fetchall()
