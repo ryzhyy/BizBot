@@ -429,6 +429,21 @@ async def finalize_booking(
         reply_markup=CLIENT_MENU_KEYBOARD
     )
 
+
+BOOKING_FLOW_KEYS = [
+    "booking_business_id",
+    "service_id",
+    "service_name",
+    "date",
+    "time",
+    "pending_phone_booking",
+]
+
+
+def clear_booking_flow_state(context):
+    for key in BOOKING_FLOW_KEYS:
+        context.user_data.pop(key, None)
+
 # =========================
 # MAIN MENU
 # =========================
@@ -982,7 +997,7 @@ async def button_handler(
                 "Будь ласка, оберіть інший."
             )
 
-            context.user_data.clear()
+            clear_booking_flow_state(context)
             return
 
         if not await require_customer_phone(
@@ -1016,13 +1031,13 @@ async def button_handler(
             )
         )
 
-        context.user_data.clear()
+        clear_booking_flow_state(context)
 
     # CANCEL
 
     elif data == "cancel":
 
-        context.user_data.clear()
+        clear_booking_flow_state(context)
 
         await query.message.reply_text(
             "❌ Запис скасовано."
