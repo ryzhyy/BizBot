@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from database import get_connection
+from database import get_connection, get_working_hours
 
 
 def get_customer(business_id, telegram_id):
@@ -80,6 +80,36 @@ def is_slot_taken(business_id, booking_date, booking_time):
     conn.close()
 
     return taken
+
+
+def get_available_times(business_id, date):
+    booking_date = datetime.strptime(date, "%Y-%m-%d")
+    weekday = booking_date.weekday()
+
+    working_hours = get_working_hours(business_id)
+
+    day_schedule = next(
+        (row for row in working_hours if row["weekday"] == weekday),
+        None
+    )
+
+    if not day_schedule or not day_schedule["is_open"]:
+        return None
+
+    start_time = datetime.strptime(day_schedule["start_time"], "%H:%M")
+    end_time = datetime.strptime(day_schedule["end_time"], "%H:%M")
+
+    available_times = []
+    current_time = start_time
+
+    while current_time < end_time:
+        available_times.append(current_time.strftime("%H:%M"))
+        current_time += timedelta(minutes=60)
+
+    return [
+        t for t in available_times
+        if not is_slot_taken(business_id, date, t)
+    ]
 
 
 def create_booking(business_id, customer_id, service_id, booking_date, booking_time):

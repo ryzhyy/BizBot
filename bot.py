@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from setup import get_setup_handler
 from schedule import get_schedule_handler
-from database import init_database, get_working_hours
+from database import init_database
 
 from business_context import (
     build_business_prompt,
@@ -25,6 +25,7 @@ from bookings import (
     get_customer,
     get_or_create_customer,
     is_slot_taken,
+    get_available_times,
     create_booking,
     get_customer_bookings,
     get_business_bookings,
@@ -802,13 +803,15 @@ async def button_handler(
         ai_state["date"] = selected_date
         context.user_data["ai_state"] = ai_state
 
-        available_times = []
+        available_times = get_available_times(
+            booking_business_id, selected_date
+        )
 
-        for hour in range(10, 20):
-            selected_time = f"{hour:02d}:00"
-
-            if not is_slot_taken(booking_business_id, selected_date, selected_time):
-                available_times.append(selected_time)
+        if available_times is None:
+            await query.message.reply_text(
+                "😔 У цей день ми не працюємо. Оберіть інший день."
+            )
+            return
 
         if not available_times:
             await query.message.reply_text(
@@ -1681,65 +1684,14 @@ async def ai_message(
                 )
                 return
 
-            # Визначаємо день тижня
-            booking_date = datetime.strptime(
-                date,
-                "%Y-%m-%d"
-            )
+            available_times = get_available_times(business["id"], date)
 
-            weekday = booking_date.weekday()
-
-            # Беремо графік конкретного бізнесу
-            working_hours = get_working_hours(
-                business["id"]
-            )
-
-            day_schedule = next(
-                (
-                    row
-                    for row in working_hours
-                    if row["weekday"] == weekday
-                ),
-                None
-            )
-
-            # Перевіряємо, чи бізнес працює цього дня
-            if (
-                not day_schedule
-                or not day_schedule["is_open"]
-            ):
+            if available_times is None:
                 await update.message.reply_text(
                     "😔 У цей день ми не працюємо.\n"
                     "Оберіть, будь ласка, інший день."
                 )
                 return
-
-            start_time = datetime.strptime(
-                day_schedule["start_time"],
-                "%H:%M"
-            )
-
-            end_time = datetime.strptime(
-                day_schedule["end_time"],
-                "%H:%M"
-            )
-
-            # Генеруємо слоти кожні 60 хвилин
-            available_times = []
-            current_time = start_time
-
-            while current_time < end_time:
-                available_times.append(
-                    current_time.strftime("%H:%M")
-                )
-                current_time += timedelta(minutes=60)
-
-            # Прибираємо зайняті години
-            available_times = [
-                t
-                for t in available_times
-                if not is_slot_taken(business["id"], date, t)
-            ]
 
             # Наприклад: "після 16"
             if after_time:
