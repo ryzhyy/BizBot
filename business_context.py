@@ -156,7 +156,8 @@ def build_business_prompt(business_id):
 
     cursor.execute(
         """
-        SELECT id, name, category, city, phone
+        SELECT id, name, category, city, phone,
+               support_contact_mode, support_contact_value
         FROM businesses
         WHERE id = ?
         """,
@@ -211,7 +212,14 @@ def build_business_prompt(business_id):
     else:
         working_hours_text = "- Графік роботи ще не вказано\n"
 
-    phone = business["phone"] or "не вказано"
+    if (
+        business["support_contact_mode"] == "manual"
+        and business["support_contact_value"]
+    ):
+        contact = business["support_contact_value"]
+    else:
+        contact = business["phone"] or "не вказано"
+
     city = business["city"] or "не вказано"
     category = business["category"] or "не вказано"
 
@@ -223,7 +231,7 @@ def build_business_prompt(business_id):
 Назва: {business['name']}
 Категорія: {category}
 Місто: {city}
-Телефон: {phone}
+Контакт: {contact}
 
 ПОСЛУГИ:
 
@@ -239,7 +247,7 @@ def build_business_prompt(business_id):
 - Спілкуйся коротко, природно та ввічливо.
 - Використовуй тільки інформацію, яку отримав
   про цей бізнес.
-- Не вигадуй послуги, ціни, адресу, телефон
+- Не вигадуй послуги, ціни, адресу, контакт
   або години роботи.
 - Якщо інформації немає, прямо скажи,
   що вона ще не вказана.
