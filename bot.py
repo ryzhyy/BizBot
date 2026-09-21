@@ -29,6 +29,7 @@ from bookings import (
     get_or_create_customer,
     set_customer_phone,
     is_slot_taken,
+    is_daily_free_limit_reached,
     get_available_times,
     create_booking,
     get_customer_bookings,
@@ -353,6 +354,25 @@ async def reply_keyboard_router(
     elif text == "❓ Допомога":
         await help_button(update, context)
 
+
+
+def daily_limit_contact_line(business):
+    if (
+        business
+        and business["support_contact_mode"] == "manual"
+        and business["support_contact_value"]
+    ):
+        return (
+            "\n\n☎️ Або зв'яжіться напряму: "
+            f"{business['support_contact_value']}"
+        )
+    return ""
+
+
+DAILY_LIMIT_REACHED_TEXT = (
+    "😔 На цей день ліміт безкоштовних записів вичерпано. "
+    "Оберіть, будь ласка, інший день."
+)
 
 
 async def notify_owner_of_booking(
@@ -917,6 +937,14 @@ async def button_handler(
         ai_state = context.user_data.get("ai_state", {})
         ai_state["date"] = selected_date
         context.user_data["ai_state"] = ai_state
+
+        if is_daily_free_limit_reached(booking_business_id, selected_date):
+            booking_business = get_business_by_id(booking_business_id)
+            await query.message.reply_text(
+                DAILY_LIMIT_REACHED_TEXT
+                + daily_limit_contact_line(booking_business)
+            )
+            return
 
         available_times = get_available_times(
             booking_business_id, selected_date
@@ -1792,6 +1820,13 @@ async def ai_message(
             if not date:
                 await update.message.reply_text(
                     "На який день хочете записатися?"
+                )
+                return
+
+            if is_daily_free_limit_reached(business["id"], date):
+                await update.message.reply_text(
+                    DAILY_LIMIT_REACHED_TEXT
+                    + daily_limit_contact_line(business)
                 )
                 return
 
