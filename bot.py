@@ -11,6 +11,7 @@ from business_context import (
     get_business_by_id,
     get_business_services,
     get_service_by_id,
+    get_business_maps_link,
 )
 from services import (
     services_list,
@@ -21,6 +22,7 @@ from contact_settings import (
     get_setcontact_handler,
     get_setfaq_handler,
 )
+from location_settings import get_setlocation_handler
 from bookings import (
     get_customer,
     get_or_create_customer,
@@ -100,6 +102,7 @@ OWNER_MENU_KEYBOARD = ReplyKeyboardMarkup(
         ["📝 Мій бізнес", "➕ Додати послугу"],
         ["📋 Мої послуги", "❓ Допомога"],
         ["⚙️ Контакт для клієнтів", "❓ Налаштувати FAQ"],
+        ["📍 Локація бізнесу"],
     ],
     resize_keyboard=True
 )
@@ -496,11 +499,19 @@ async def start(
 
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
+                maps_link = get_business_maps_link(business)
+
+                location_line = (
+                    f"📍 Ми тут: {maps_link}\n\n"
+                    if maps_link else ""
+                )
+
                 await update.message.reply_text(
                     f"👋 Вітаємо у «{business['name']}»!\n\n"
                     f"✨ Я ваш персональний AI-асистент.\n\n"
                     f"Допоможу обрати послугу, дізнатися ціну "
                     f"та знайти зручний час для запису.\n\n"
+                    f"{location_line}"
                     f"Оберіть дію нижче 👇\n\n"
                     f"💬 Або просто напишіть мені, наприклад:\n"
                     f"«Хочу стрижку завтра о 17:00»",
@@ -2028,6 +2039,7 @@ async def post_init(app):
         BotCommand("schedule", "Налаштувати графік роботи"),
         BotCommand("setcontact", "Контакт для клієнтів"),
         BotCommand("setfaq", "Налаштувати FAQ для клієнтів"),
+        BotCommand("setlocation", "Локація бізнесу"),
         BotCommand("mylink", "Посилання для клієнтів"),
         BotCommand("mybookings", "Мої записи"),
         BotCommand("admin", "Панель власника"),
@@ -2065,6 +2077,10 @@ def main():
 
     app.add_handler(
         get_setfaq_handler()
+    )
+
+    app.add_handler(
+        get_setlocation_handler()
     )
 
     app.add_handler(
