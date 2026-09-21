@@ -10,41 +10,13 @@ from telegram.ext import (
 )
 
 from database import (
-    get_connection,
     set_working_hours,
     get_working_hours,
+    DAY_NAMES,
 )
+from business_context import get_business_by_owner
 
 WAITING_SCHEDULE = 1
-
-DAY_NAMES = [
-    "Пн",
-    "Вт",
-    "Ср",
-    "Чт",
-    "Пт",
-    "Сб",
-    "Нд",
-]
-
-
-def get_business_by_owner(owner_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT id, name
-        FROM businesses
-        WHERE owner_telegram_id = ?
-        """,
-        (owner_id,)
-    )
-
-    business = cursor.fetchone()
-    conn.close()
-
-    return business
 
 
 async def schedule_start(

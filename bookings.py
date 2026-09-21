@@ -125,6 +125,26 @@ def is_slot_taken(business_id, booking_date, booking_time):
     return taken
 
 
+def get_taken_times(business_id, booking_date):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT booking_time FROM bookings
+        WHERE business_id = ?
+          AND booking_date = ?
+          AND status = 'confirmed'
+        """,
+        (business_id, booking_date)
+    )
+
+    taken_times = {row["booking_time"] for row in cursor.fetchall()}
+    conn.close()
+
+    return taken_times
+
+
 def get_available_times(business_id, date):
     booking_date = datetime.strptime(date, "%Y-%m-%d")
     weekday = booking_date.weekday()
@@ -149,9 +169,11 @@ def get_available_times(business_id, date):
         available_times.append(current_time.strftime("%H:%M"))
         current_time += timedelta(minutes=60)
 
+    taken_times = get_taken_times(business_id, date)
+
     return [
         t for t in available_times
-        if not is_slot_taken(business_id, date, t)
+        if t not in taken_times
     ]
 
 

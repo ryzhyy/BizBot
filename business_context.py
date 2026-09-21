@@ -1,9 +1,6 @@
 import urllib.parse
 
-from database import get_connection, get_working_hours
-
-
-DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
+from database import get_connection, get_working_hours, DAY_NAMES
 
 
 def get_business_by_owner(owner_telegram_id):
