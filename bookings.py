@@ -61,6 +61,23 @@ def get_or_create_customer(business_id, telegram_id, name=None):
     return customer_id
 
 
+def set_customer_phone(business_id, telegram_id, phone):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        UPDATE customers
+        SET phone = ?
+        WHERE business_id = ? AND telegram_id = ?
+        """,
+        (phone, business_id, telegram_id)
+    )
+
+    conn.commit()
+    conn.close()
+
+
 def is_slot_taken(business_id, booking_date, booking_time):
     conn = get_connection()
     cursor = conn.cursor()

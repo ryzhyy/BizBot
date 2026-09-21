@@ -24,6 +24,7 @@ from contact_settings import (
 from bookings import (
     get_customer,
     get_or_create_customer,
+    set_customer_phone,
     is_slot_taken,
     get_available_times,
     create_booking,
@@ -43,6 +44,7 @@ from telegram import (
     BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    KeyboardButton,
     ReplyKeyboardMarkup,
     Update,
 )
@@ -359,6 +361,73 @@ async def notify_owner_of_booking(
         )
     except Exception as error:
         print("OWNER NOTIFY ERROR:", error)
+
+
+REQUEST_PHONE_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        [KeyboardButton("📱 Поділитися номером", request_contact=True)],
+    ],
+    resize_keyboard=True,
+    one_time_keyboard=True
+)
+
+
+async def require_customer_phone(update, context, business_id):
+    user = update.effective_user
+
+    customer = get_customer(business_id, user.id)
+
+    if not customer:
+        get_or_create_customer(business_id, user.id, user.full_name)
+        customer = get_customer(business_id, user.id)
+
+    if customer["phone"]:
+        return True
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=(
+            "Для завершення запису поділіться, будь ласка, "
+            "номером телефону 👇"
+        ),
+        reply_markup=REQUEST_PHONE_KEYBOARD
+    )
+
+    return False
+
+
+async def finalize_booking(
+    update, context, business, service_id, service_name,
+    date, time, success_text
+):
+    user = update.effective_user
+
+    customer_id = get_or_create_customer(
+        business["id"], user.id, user.full_name
+    )
+
+    create_booking(
+        business["id"],
+        customer_id,
+        service_id,
+        date,
+        time
+    )
+
+    await notify_owner_of_booking(
+        context,
+        business,
+        user.full_name,
+        service_name,
+        date,
+        time
+    )
+
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=success_text,
+        reply_markup=CLIENT_MENU_KEYBOARD
+    )
 
 # =========================
 # MAIN MENU
@@ -885,8 +954,6 @@ async def button_handler(
 
     elif data == "confirm":
 
-        user = query.from_user
-
         booking_business_id = context.user_data.get("booking_business_id")
         service_id = context.user_data.get("service_id")
         service_name = context.user_data.get("service_name")
@@ -918,35 +985,35 @@ async def button_handler(
             context.user_data.clear()
             return
 
-        customer_id = get_or_create_customer(
-            booking_business_id, user.id, user.full_name
-        )
-
-        create_booking(
-            booking_business_id,
-            customer_id,
-            service_id,
-            date,
-            time
-        )
+        if not await require_customer_phone(
+            update, context, booking_business_id
+        ):
+            context.user_data["pending_phone_booking"] = {
+                "business_id": booking_business_id,
+                "service_id": service_id,
+                "service_name": service_name,
+                "date": date,
+                "time": time,
+            }
+            return
 
         booking_business = get_business_by_id(booking_business_id)
 
-        await notify_owner_of_booking(
+        await finalize_booking(
+            update,
             context,
             booking_business,
-            user.full_name,
+            service_id,
             service_name,
             date,
-            time
-        )
-
-        await query.message.reply_text(
-            "✅ Запис підтверджено!\n\n"
-            f"✂️ {service_name}\n"
-            f"📅 {date}\n"
-            f"🕐 {time}\n\n"
-            "До зустрічі! 👋"
+            time,
+            success_text=(
+                "✅ Запис підтверджено!\n\n"
+                f"✂️ {service_name}\n"
+                f"📅 {date}\n"
+                f"🕐 {time}\n\n"
+                "До зустрічі! 👋"
+            )
         )
 
         context.user_data.clear()
@@ -1542,8 +1609,6 @@ async def ai_message(
                 )
                 return
 
-            user = update.effective_user
-
             confirm_service = get_service_by_id(
                 service, confirm_business["id"]
             )
@@ -1555,33 +1620,33 @@ async def ai_message(
                 )
                 return
 
-            confirm_customer_id = get_or_create_customer(
-                confirm_business["id"], user.id, user.full_name
-            )
+            if not await require_customer_phone(
+                update, context, confirm_business["id"]
+            ):
+                context.user_data["pending_phone_booking"] = {
+                    "business_id": confirm_business["id"],
+                    "service_id": confirm_service["id"],
+                    "service_name": confirm_service["name"],
+                    "date": date,
+                    "time": time,
+                }
+                return
 
-            create_booking(
-                confirm_business["id"],
-                confirm_customer_id,
-                confirm_service["id"],
-                date,
-                time
-            )
-
-            await notify_owner_of_booking(
+            await finalize_booking(
+                update,
                 context,
                 confirm_business,
-                user.full_name,
+                confirm_service["id"],
                 confirm_service["name"],
                 date,
-                time
-            )
-
-            await update.message.reply_text(
-                "✅ Готово! Ви записані.\n\n"
-                f"✂️ {confirm_service['name']}\n"
-                f"📅 {date}\n"
-                f"🕐 {time}\n\n"
-                "До зустрічі! 👋"
+                time,
+                success_text=(
+                    "✅ Готово! Ви записані.\n\n"
+                    f"✂️ {confirm_service['name']}\n"
+                    f"📅 {date}\n"
+                    f"🕐 {time}\n\n"
+                    "До зустрічі! 👋"
+                )
             )
 
             context.user_data.pop("ai_state", None)
@@ -1815,6 +1880,72 @@ async def mylink(
     )
 
 
+async def handle_contact(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    contact = update.message.contact
+
+    if contact.user_id != update.effective_user.id:
+        await update.message.reply_text(
+            "⚠️ Будь ласка, поділіться саме своїм номером телефону."
+        )
+        return
+
+    pending = context.user_data.get("pending_phone_booking")
+
+    if not pending:
+        await update.message.reply_text(
+            "Дякую! Але зараз немає незавершеного запису.",
+            reply_markup=CLIENT_MENU_KEYBOARD
+        )
+        return
+
+    business_id = pending["business_id"]
+
+    set_customer_phone(
+        business_id, update.effective_user.id, contact.phone_number
+    )
+
+    business = get_business_by_id(business_id)
+
+    if not business:
+        await update.message.reply_text(
+            "⚠️ Не вдалося знайти бізнес. Почніть запис заново.",
+            reply_markup=CLIENT_MENU_KEYBOARD
+        )
+        context.user_data.pop("pending_phone_booking", None)
+        return
+
+    # Слот могли зайняти, поки клієнт ділився контактом.
+    if is_slot_taken(business_id, pending["date"], pending["time"]):
+        await update.message.reply_text(
+            "😔 Цей час щойно зайняли. Спробуйте ще раз.",
+            reply_markup=CLIENT_MENU_KEYBOARD
+        )
+        context.user_data.pop("pending_phone_booking", None)
+        return
+
+    await finalize_booking(
+        update,
+        context,
+        business,
+        pending["service_id"],
+        pending["service_name"],
+        pending["date"],
+        pending["time"],
+        success_text=(
+            "✅ Запис підтверджено!\n\n"
+            f"✂️ {pending['service_name']}\n"
+            f"📅 {pending['date']}\n"
+            f"🕐 {pending['time']}\n\n"
+            "До зустрічі! 👋"
+        )
+    )
+
+    context.user_data.pop("pending_phone_booking", None)
+
+
 # TEMP DEBUG — прибрати перед фінальним поданням заявки.
 # Дозволяє перевірити клієнтський текст "Допомога" для будь-якого
 # business_id без окремого Telegram-акаунта в ролі клієнта.
@@ -1964,6 +2095,12 @@ def main():
         MessageHandler(
             filters.Text(REPLY_MENU_BUTTON_TEXTS),
             reply_keyboard_router
+        )
+    )
+    app.add_handler(
+        MessageHandler(
+            filters.CONTACT,
+            handle_contact
         )
     )
     app.add_handler(
