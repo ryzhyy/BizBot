@@ -343,7 +343,7 @@ async def help_button(
         if owned_business:
             await update.message.reply_text(
                 "🆘 Підтримка\n\n"
-                "З питань роботи бота: @your_support_username\n\n"
+                "З питань роботи бота: @kUrp1ak\n\n"
                 "❓ FAQ власника:\n\n"
                 "• Додати послугу — кнопка «➕ Додати послугу» "
                 "або /addservice\n"
