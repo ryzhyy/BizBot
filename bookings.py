@@ -338,7 +338,8 @@ def get_upcoming_bookings_needing_reminder(hours_ahead=2):
                services.name AS service,
                bookings.booking_date AS date,
                bookings.booking_time AS time,
-               businesses.name AS business_name
+               businesses.name AS business_name,
+               businesses.category AS business_category
         FROM bookings
         JOIN customers ON customers.id = bookings.customer_id
         JOIN services ON services.id = bookings.service_id
