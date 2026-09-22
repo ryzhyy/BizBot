@@ -11,12 +11,14 @@ from telegram.ext import (
 from business_context import (
     get_business_by_owner,
     set_business_contact,
-    set_business_faq,
+    get_faq_items,
+    add_faq_item,
+    delete_faq_item,
 )
 
 
 CONTACT_CHOOSE_MODE, CONTACT_MANUAL_VALUE = range(2)
-FAQ_TEXT = 0
+FAQ_MENU, FAQ_ADD_QUESTION, FAQ_ADD_ANSWER = range(3)
 
 
 # =========================
@@ -161,6 +163,57 @@ def get_setcontact_handler():
 # /setfaq
 # =========================
 
+def faq_menu_message(business_id):
+    items = get_faq_items(business_id)
+
+    if items:
+        lines = "\n".join(
+            f"{i}. {item['question']}"
+            for i, item in enumerate(items, start=1)
+        )
+        text = (
+            "❓ Налаштування FAQ\n\n"
+            "Поточні питання:\n\n"
+            f"{lines}\n\n"
+            "Натисніть ✖️ біля питання, щоб видалити його."
+        )
+    else:
+        text = (
+            "❓ Налаштування FAQ\n\n"
+            "Питань ще немає. Додайте перше — це два короткі "
+            "кроки: питання, потім відповідь."
+        )
+
+    keyboard = []
+
+    for item in items:
+        label = item["question"]
+        if len(label) > 40:
+            label = label[:40] + "…"
+
+        keyboard.append([
+            InlineKeyboardButton(
+                f"✖️ {label}",
+                callback_data=f"faqdel_{item['id']}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            "➕ Додати питання",
+            callback_data="faq_add"
+        )
+    ])
+    keyboard.append([
+        InlineKeyboardButton(
+            "✅ Готово",
+            callback_data="faq_done"
+        )
+    ])
+
+    return text, InlineKeyboardMarkup(keyboard)
+
+
 async def setfaq_start(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -173,33 +226,76 @@ async def setfaq_start(
         )
         return ConversationHandler.END
 
-    await update.message.reply_text(
-        "Напишіть текст, який бачитимуть клієнти "
-        "в розділі Допомога:"
-    )
+    context.user_data["faq_business_id"] = business["id"]
 
-    return FAQ_TEXT
+    text, keyboard = faq_menu_message(business["id"])
+
+    await update.message.reply_text(text, reply_markup=keyboard)
+
+    return FAQ_MENU
 
 
-async def setfaq_save(
+async def setfaq_menu_callback(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    business = get_business_by_owner(update.effective_user.id)
+    query = update.callback_query
+    await query.answer()
 
-    if not business:
-        await update.message.reply_text(
-            "⚠️ Спочатку створіть бізнес через /setup."
-        )
+    business_id = context.user_data.get("faq_business_id")
+
+    if query.data == "faq_add":
+        await query.message.reply_text("Яке питання додаємо?")
+        return FAQ_ADD_QUESTION
+
+    if query.data == "faq_done":
+        await query.message.reply_text("✅ Готово.")
         return ConversationHandler.END
 
-    faq_text = update.message.text.strip()
+    if query.data.startswith("faqdel_"):
+        item_id = int(query.data.replace("faqdel_", ""))
+        delete_faq_item(item_id, business_id)
 
-    set_business_faq(business["id"], faq_text)
+        text, keyboard = faq_menu_message(business_id)
+        await query.message.reply_text(text, reply_markup=keyboard)
 
-    await update.message.reply_text("✅ FAQ збережено.")
+        return FAQ_MENU
 
-    return ConversationHandler.END
+    return FAQ_MENU
+
+
+async def setfaq_add_question(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    context.user_data["faq_pending_question"] = (
+        update.message.text.strip()
+    )
+
+    await update.message.reply_text("А тепер відповідь на нього:")
+
+    return FAQ_ADD_ANSWER
+
+
+async def setfaq_add_answer(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    business_id = context.user_data.get("faq_business_id")
+    question = context.user_data.pop("faq_pending_question", None)
+    answer = update.message.text.strip()
+
+    if business_id and question:
+        add_faq_item(business_id, question, answer)
+
+    text, keyboard = faq_menu_message(business_id)
+
+    await update.message.reply_text(
+        "✅ Додано!\n\n" + text,
+        reply_markup=keyboard
+    )
+
+    return FAQ_MENU
 
 
 async def setfaq_cancel(
@@ -229,11 +325,25 @@ def get_setfaq_handler():
             ),
         ],
         states={
-            FAQ_TEXT: [
+            FAQ_MENU: [
+                CallbackQueryHandler(
+                    setfaq_menu_callback,
+                    pattern="^(faq_add|faq_done|faqdel_)"
+                ),
+                MessageHandler(menu_button_filter, interrupt_on_menu_button),
+            ],
+            FAQ_ADD_QUESTION: [
                 MessageHandler(menu_button_filter, interrupt_on_menu_button),
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
-                    setfaq_save
+                    setfaq_add_question
+                ),
+            ],
+            FAQ_ADD_ANSWER: [
+                MessageHandler(menu_button_filter, interrupt_on_menu_button),
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    setfaq_add_answer
                 ),
             ],
         },

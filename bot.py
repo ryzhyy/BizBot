@@ -13,6 +13,7 @@ from business_context import (
     get_business_services,
     get_service_by_id,
     get_business_maps_link,
+    get_faq_items,
 )
 from services import (
     services_list,
@@ -292,14 +293,20 @@ async def build_client_help_text(business, context):
             else "☎️ Телефон ще не вказано, зверніться через AI-чат"
         )
 
-    faq_text = business["faq_text"] if business else None
+    faq_items = get_faq_items(business["id"]) if business else []
 
-    faq_section = faq_text or (
-        "• Записатися — кнопка «✂️ Записатися» або напишіть, "
-        "наприклад «хочу стрижку завтра о 17:00»\n"
-        "• Скасувати запис — напишіть «скасуй мій запис»\n"
-        "• Перенести запис — напишіть «перенеси мій запис на ...»"
-    )
+    if faq_items:
+        faq_section = "\n\n".join(
+            f"❓ {item['question']}\n{item['answer']}"
+            for item in faq_items
+        )
+    else:
+        faq_section = (
+            "• Записатися — кнопка «✂️ Записатися» або напишіть, "
+            "наприклад «хочу стрижку завтра о 17:00»\n"
+            "• Скасувати запис — напишіть «скасуй мій запис»\n"
+            "• Перенести запис — напишіть «перенеси мій запис на ...»"
+        )
 
     return (
         "🆘 Допомога\n\n"

@@ -273,6 +273,54 @@ def init_database():
         "ON working_hours(business_id, service_id, weekday)"
     )
 
+    # Migration: FAQ as separate items instead of one big faq_text blob.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS faq_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            business_id INTEGER NOT NULL,
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (business_id)
+            REFERENCES businesses(id)
+        )
+        """
+    )
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_faq_items_business "
+        "ON faq_items(business_id)"
+    )
+
+    # One-time carry-over: businesses that already have an old-style
+    # faq_text and no faq_items yet get it turned into a single item,
+    # so nothing owners already wrote gets lost.
+    cursor.execute(
+        """
+        SELECT id, faq_text FROM businesses
+        WHERE faq_text IS NOT NULL AND TRIM(faq_text) != ''
+        """
+    )
+    businesses_with_faq_text = cursor.fetchall()
+
+    for row in businesses_with_faq_text:
+        cursor.execute(
+            "SELECT COUNT(*) AS count FROM faq_items WHERE business_id = ?",
+            (row["id"],)
+        )
+        has_items = cursor.fetchone()["count"] > 0
+
+        if not has_items:
+            cursor.execute(
+                """
+                INSERT INTO faq_items (business_id, question, answer)
+                VALUES (?, ?, ?)
+                """,
+                (row["id"], "Інформація", row["faq_text"])
+            )
+
     conn.commit()
     conn.close()
 def set_business_schedule(
