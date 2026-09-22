@@ -167,10 +167,20 @@ def faq_menu_message(business_id):
     items = get_faq_items(business_id)
 
     if items:
-        lines = "\n".join(
-            f"{i}. {item['question']}"
-            for i, item in enumerate(items, start=1)
-        )
+        entries = []
+
+        for i, item in enumerate(items, start=1):
+            answer = item["answer"]
+            if len(answer) > 150:
+                answer = answer[:150] + "…"
+
+            entries.append(
+                f"{i}. {item['question']}\n"
+                f"   Відповідь: {answer}"
+            )
+
+        lines = "\n\n".join(entries)
+
         text = (
             "❓ Налаштування FAQ\n\n"
             "Поточні питання:\n\n"
