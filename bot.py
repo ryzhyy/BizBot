@@ -85,15 +85,20 @@ if not OPENAI_API_KEY:
 # =========================
 
 def resolve_current_business(context, telegram_id):
-    owned_business = get_business_by_owner(telegram_id)
-
-    if owned_business:
-        return owned_business
-
+    # Клієнтський контекст (перейшов по персональному лінку бізнесу)
+    # має пріоритет над тим, що ця людина десь ще власник —
+    # інакше власник, який тестує клієнтський досвід (або просто
+    # власник кількох ботів), завжди потрапляв би у свій бізнес
+    # замість того, до якого насправді підключився як клієнт.
     client_business_id = context.user_data.get("client_business_id")
 
     if client_business_id:
         return get_business_by_id(client_business_id)
+
+    owned_business = get_business_by_owner(telegram_id)
+
+    if owned_business:
+        return owned_business
 
     return None
 
@@ -285,6 +290,22 @@ async def build_client_help_text(business, context):
             else "☎️ Телефон ще не вказано, зверніться через AI-чат"
         )
 
+    maps_link = get_business_maps_link(business) if business else None
+
+    location_line = (
+        f"📍 {maps_link}\n\n"
+        if maps_link
+        else ""
+    )
+
+    bot_usage_text = (
+        "📋 Як користуватись ботом:\n"
+        "• Записатися — кнопка «✂️ Записатися» або напишіть, "
+        "наприклад «хочу стрижку завтра о 17:00»\n"
+        "• Скасувати запис — напишіть «скасуй мій запис»\n"
+        "• Перенести запис — напишіть «перенеси мій запис на ...»"
+    )
+
     faq_items = get_faq_items(business["id"]) if business else []
 
     if faq_items:
@@ -292,19 +313,16 @@ async def build_client_help_text(business, context):
             f"❓ {item['question']}\n{item['answer']}"
             for item in faq_items
         )
+        faq_block = f"\n\n❓ FAQ:\n\n{faq_section}"
     else:
-        faq_section = (
-            "• Записатися — кнопка «✂️ Записатися» або напишіть, "
-            "наприклад «хочу стрижку завтра о 17:00»\n"
-            "• Скасувати запис — напишіть «скасуй мій запис»\n"
-            "• Перенести запис — напишіть «перенеси мій запис на ...»"
-        )
+        faq_block = ""
 
     return (
         "🆘 Допомога\n\n"
         f"{contact_line}\n\n"
-        "❓ FAQ:\n\n"
-        f"{faq_section}"
+        f"{location_line}"
+        f"{bot_usage_text}"
+        f"{faq_block}"
     )
 
 
@@ -313,19 +331,26 @@ async def help_button(
     context: ContextTypes.DEFAULT_TYPE
 ):
     telegram_id = update.effective_user.id
-    owned_business = get_business_by_owner(telegram_id)
 
-    if owned_business:
-        await update.message.reply_text(
-            "🆘 Підтримка\n\n"
-            "З питань роботи бота: @your_support_username\n\n"
-            "❓ FAQ власника:\n\n"
-            "• Додати послугу — кнопка «➕ Додати послугу» "
-            "або /addservice\n"
-            "• Отримати посилання для клієнтів — /mylink\n"
-            "• Переглянути свої записи — /admin"
-        )
-        return
+    # Власницьку підтримку показуємо лише коли людина зараз у
+    # СВОЇЙ владній панелі (немає активного клієнтського контексту),
+    # так само, як бере до уваги звичайний /start.
+    client_business_id = context.user_data.get("client_business_id")
+
+    if not client_business_id:
+        owned_business = get_business_by_owner(telegram_id)
+
+        if owned_business:
+            await update.message.reply_text(
+                "🆘 Підтримка\n\n"
+                "З питань роботи бота: @your_support_username\n\n"
+                "❓ FAQ власника:\n\n"
+                "• Додати послугу — кнопка «➕ Додати послугу» "
+                "або /addservice\n"
+                "• Отримати посилання для клієнтів — /mylink\n"
+                "• Переглянути свої записи — /admin"
+            )
+            return
 
     business = resolve_current_business(context, telegram_id)
 
