@@ -242,7 +242,17 @@ def build_business_prompt(business_id):
     else:
         contact = business["phone"] or "не вказано"
 
-    faq_text = business["faq_text"] or "- FAQ ще не наповнено власником\n"
+    faq_items = get_faq_items(business_id)
+
+    if faq_items:
+        faq_text = ""
+        for item in faq_items:
+            faq_text += (
+                f"- Питання: {item['question']}\n"
+                f"  Відповідь: {item['answer']}\n"
+            )
+    else:
+        faq_text = "- FAQ ще не наповнено власником\n"
 
     city = business["city"] or "не вказано"
     category = business["category"] or "не вказано"
@@ -322,6 +332,64 @@ def set_business_faq(business_id, faq_text):
 
     conn.commit()
     conn.close()
+
+
+def get_faq_items(business_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id, question, answer
+        FROM faq_items
+        WHERE business_id = ?
+        ORDER BY id
+        """,
+        (business_id,)
+    )
+
+    items = cursor.fetchall()
+    conn.close()
+
+    return items
+
+
+def add_faq_item(business_id, question, answer):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO faq_items (business_id, question, answer)
+        VALUES (?, ?, ?)
+        """,
+        (business_id, question, answer)
+    )
+
+    conn.commit()
+    item_id = cursor.lastrowid
+    conn.close()
+
+    return item_id
+
+
+def delete_faq_item(item_id, business_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        DELETE FROM faq_items
+        WHERE id = ? AND business_id = ?
+        """,
+        (item_id, business_id)
+    )
+
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+
+    return deleted
 
 
 def set_business_location(
