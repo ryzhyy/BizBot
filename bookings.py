@@ -10,23 +10,29 @@ FREE_DAILY_BOOKING_LIMIT = 1
 
 
 def is_daily_free_limit_reached(business_id, booking_date):
-    conn = get_connection()
-    cursor = conn.cursor()
+    # ТИМЧАСОВО ВИМКНЕНО: ліміт заважає повноцінно тестувати бота на
+    # реальному бізнесі. Платних планів ще немає, тож поки що
+    # дозволяємо необмежену кількість записів на день. Щоб повернути
+    # ліміт — розкоментувати блок нижче й прибрати "return False".
+    return False
 
-    cursor.execute(
-        """
-        SELECT COUNT(*) AS count FROM bookings
-        WHERE business_id = ?
-          AND booking_date = ?
-          AND status = 'confirmed'
-        """,
-        (business_id, booking_date)
-    )
-
-    count = cursor.fetchone()["count"]
-    conn.close()
-
-    return count >= FREE_DAILY_BOOKING_LIMIT
+    # conn = get_connection()
+    # cursor = conn.cursor()
+    #
+    # cursor.execute(
+    #     """
+    #     SELECT COUNT(*) AS count FROM bookings
+    #     WHERE business_id = ?
+    #       AND booking_date = ?
+    #       AND status = 'confirmed'
+    #     """,
+    #     (business_id, booking_date)
+    # )
+    #
+    # count = cursor.fetchone()["count"]
+    # conn.close()
+    #
+    # return count >= FREE_DAILY_BOOKING_LIMIT
 
 
 def get_customer(business_id, telegram_id):
