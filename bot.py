@@ -881,23 +881,32 @@ async def button_handler(
 
     elif data == "services":
 
-        await query.message.reply_text(
-            "✂️ Наші послуги:\n\n"
-            "Стрижка — 500 грн\n"
-            "Борода — 300 грн\n"
-            "Стрижка + борода — 700 грн"
+        business = resolve_current_business(
+            context, query.from_user.id
         )
 
-    # CONTACTS
+        if not business:
+            await query.message.reply_text(
+                "⚠️ Не вдалося визначити бізнес."
+            )
+            return
 
-    elif data == "contacts":
+        services = get_business_services(business["id"])
 
-        await query.message.reply_text(
-            "📍 Barber Demo\n\n"
-            "Львів\n"
-            "Пн–Сб: 10:00–20:00\n\n"
-            "☎️ +380 XX XXX XX XX"
-        )
+        if not services:
+            await query.message.reply_text(
+                "😔 У цього бізнесу ще немає доданих послуг."
+            )
+            return
+
+        text = f"🧾 Послуги «{business['name']}»:\n\n"
+
+        for service in services:
+            text += (
+                f"✂️ {service['name']} — {service['price']} грн\n"
+            )
+
+        await query.message.reply_text(text)
 
     # MY BOOKINGS BUTTON
 
