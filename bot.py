@@ -154,17 +154,9 @@ async def start_booking(
 
     context.user_data["booking_business_id"] = business["id"]
 
-    keyboard = [
-        [InlineKeyboardButton(
-            f"✂️ {service['name']} — {service['price']} грн",
-            callback_data=f"service_{service['id']}"
-        )]
-        for service in services
-    ]
-
     await update.message.reply_text(
         "Оберіть послугу:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=build_service_choice_keyboard(services)
     )
 
 
@@ -490,12 +482,115 @@ BOOKING_FLOW_KEYS = [
     "date",
     "time",
     "pending_phone_booking",
+    "ai_state",
 ]
 
 
 def clear_booking_flow_state(context):
     for key in BOOKING_FLOW_KEYS:
         context.user_data.pop(key, None)
+
+
+def build_service_choice_keyboard(services):
+    keyboard = [
+        [InlineKeyboardButton(
+            f"✂️ {service['name']} — {service['price']} грн",
+            callback_data=f"service_{service['id']}"
+        )]
+        for service in services
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_date_choice_keyboard():
+    today = datetime.now()
+
+    weekdays = [
+        "Пн", "Вт", "Ср", "Чт",
+        "Пт", "Сб", "Нд"
+    ]
+
+    months = [
+        "",
+        "січня", "лютого", "березня",
+        "квітня", "травня", "червня",
+        "липня", "серпня", "вересня",
+        "жовтня", "листопада", "грудня"
+    ]
+
+    date_buttons = []
+
+    for i in range(1, 5):
+        date = today + timedelta(days=i)
+
+        label = (
+            f"{weekdays[date.weekday()]}, "
+            f"{date.day} {months[date.month]}"
+        )
+
+        date_buttons.append(
+            InlineKeyboardButton(
+                label,
+                callback_data="date_" + date.strftime("%Y-%m-%d")
+            )
+        )
+
+    keyboard = [
+        date_buttons[i:i + 2]
+        for i in range(0, len(date_buttons), 2)
+    ]
+
+    keyboard.append([
+        InlineKeyboardButton(
+            "❌ Скасувати",
+            callback_data="cancel"
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_time_choice_keyboard(available_times):
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                selected_time,
+                callback_data=f"time_{selected_time}"
+            )
+        ]
+        for selected_time in available_times
+    ]
+
+    keyboard.append([
+        InlineKeyboardButton(
+            "❌ Скасувати",
+            callback_data="cancel"
+        )
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def sync_booking_context(context, business_id, service_id, date=None):
+    """AI-флоу веде свій стан окремо (context.user_data["ai_state"]),
+    а кнопки під повідомленнями обробляє спільний button_handler,
+    який читає плоскі ключі (booking_business_id/service_id/...).
+    Викликається перед тим, як показати клієнту кнопки в AI-флоуі,
+    щоб тап по кнопці коректно продовжив бронювання."""
+    context.user_data["booking_business_id"] = business_id
+    context.user_data["service_id"] = service_id
+
+    resolved_service = (
+        get_service_by_id(service_id, business_id)
+        if service_id else None
+    )
+    context.user_data["service_name"] = (
+        resolved_service["name"] if resolved_service else None
+    )
+
+    if date is not None:
+        context.user_data["date"] = date
 
 # =========================
 # MAIN MENU
@@ -843,17 +938,9 @@ async def button_handler(
 
         context.user_data["booking_business_id"] = business["id"]
 
-        keyboard = [
-            [InlineKeyboardButton(
-                f"✂️ {service['name']} — {service['price']} грн",
-                callback_data=f"service_{service['id']}"
-            )]
-            for service in services
-        ]
-
         await query.message.reply_text(
             "Оберіть послугу:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=build_service_choice_keyboard(services)
         )
 
     # SERVICE
@@ -882,55 +969,10 @@ async def button_handler(
         context.user_data["service_id"] = service["id"]
         context.user_data["service_name"] = service["name"]
 
-        today = datetime.now()
-
-        weekdays = [
-            "Пн", "Вт", "Ср", "Чт",
-            "Пт", "Сб", "Нд"
-        ]
-
-        months = [
-            "",
-            "січня", "лютого", "березня",
-            "квітня", "травня", "червня",
-            "липня", "серпня", "вересня",
-            "жовтня", "листопада", "грудня"
-        ]
-
-        date_buttons = []
-
-        for i in range(1, 5):
-            date = today + timedelta(days=i)
-
-            label = (
-                f"{weekdays[date.weekday()]}, "
-                f"{date.day} {months[date.month]}"
-            )
-
-            date_buttons.append(
-                InlineKeyboardButton(
-                    label,
-                    callback_data="date_" + date.strftime("%Y-%m-%d")
-                )
-            )
-
-        keyboard = [
-            date_buttons[i:i + 2]
-            for i in range(0, len(date_buttons), 2)
-        ]
-
-        keyboard.append([
-            InlineKeyboardButton(
-                "❌ Скасувати",
-                callback_data="cancel"
-            )
-        ])
-
         await query.message.reply_text(
             f"✂️ {service['name']}\n\n"
             "📅 Оберіть зручний день:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-
+            reply_markup=build_date_choice_keyboard()
         )
 
     # DATE
@@ -971,27 +1013,10 @@ async def button_handler(
             )
             return
 
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    selected_time,
-                    callback_data=f"time_{selected_time}"
-                )
-            ]
-            for selected_time in available_times
-        ]
-
-        keyboard.append([
-            InlineKeyboardButton(
-                "❌ Скасувати",
-                callback_data="cancel"
-            )
-        ])
-
         await query.message.reply_text(
             f"📅 Обрано дату: {selected_date}\n\n"
             "🕒 Оберіть вільний час:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=build_time_choice_keyboard(available_times)
         )
 
     # TIME
@@ -1807,35 +1832,39 @@ async def ai_message(
             if not service:
                 booking_services = get_business_services(business["id"])
 
+                context.user_data["booking_business_id"] = business["id"]
+
                 if booking_services:
-                    services_text = "\n".join(
-                        f"✂️ {s['name']} — {s['price']} грн"
-                        for s in booking_services
+                    await update.message.reply_text(
+                        "✂️ Що бажаєте зробити?",
+                        reply_markup=build_service_choice_keyboard(
+                            booking_services
+                        )
                     )
                 else:
-                    services_text = (
+                    await update.message.reply_text(
                         "😔 У цього бізнесу ще немає доданих послуг."
                     )
-
-                await update.message.reply_text(
-                    f"✂️ Що бажаєте зробити?\n\n{services_text}"
-                )
 
                 state["date"] = date
                 state["time"] = time
                 context.user_data["ai_state"] = state
                 return
 
+            sync_booking_context(context, business["id"], service)
+
             if not date:
                 await update.message.reply_text(
-                    "На який день хочете записатися?"
+                    "На який день хочете записатися?",
+                    reply_markup=build_date_choice_keyboard()
                 )
                 return
 
             if is_daily_free_limit_reached(business["id"], date):
                 await update.message.reply_text(
                     DAILY_LIMIT_REACHED_TEXT
-                    + daily_limit_contact_line(business)
+                    + daily_limit_contact_line(business),
+                    reply_markup=build_date_choice_keyboard()
                 )
                 return
 
@@ -1846,7 +1875,8 @@ async def ai_message(
             if available_times is None:
                 await update.message.reply_text(
                     "😔 У цей день ми не працюємо.\n"
-                    "Оберіть, будь ласка, інший день."
+                    "Оберіть, будь ласка, інший день.",
+                    reply_markup=build_date_choice_keyboard()
                 )
                 return
 
@@ -1891,15 +1921,13 @@ async def ai_message(
                 )
                 return
 
-            times_text = "\n".join(
-                f"🕐 {t}"
-                for t in available_times
+            sync_booking_context(
+                context, business["id"], service, date=date
             )
 
             await update.message.reply_text(
-                f"На {date} доступно:\n\n"
-                f"{times_text}\n\n"
-                "Напишіть зручний час."
+                f"На {date} доступно:",
+                reply_markup=build_time_choice_keyboard(available_times)
             )
             return
 
