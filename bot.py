@@ -881,12 +881,32 @@ async def button_handler(
 
     elif data == "services":
 
-        await query.message.reply_text(
-            "✂️ Наші послуги:\n\n"
-            "Стрижка — 500 грн\n"
-            "Борода — 300 грн\n"
-            "Стрижка + борода — 700 грн"
+        business = resolve_current_business(
+            context, query.from_user.id
         )
+
+        if not business:
+            await query.message.reply_text(
+                "⚠️ Не вдалося визначити бізнес."
+            )
+            return
+
+        services = get_business_services(business["id"])
+
+        if not services:
+            await query.message.reply_text(
+                "😔 У цього бізнесу ще немає доданих послуг."
+            )
+            return
+
+        text = f"🧾 Послуги «{business['name']}»:\n\n"
+
+        for service in services:
+            text += (
+                f"✂️ {service['name']} — {service['price']} грн\n"
+            )
+
+        await query.message.reply_text(text)
 
     # CONTACTS
 
