@@ -145,11 +145,11 @@ def get_taken_times(business_id, booking_date):
     return taken_times
 
 
-def get_available_times(business_id, date):
+def get_available_times(business_id, date, service_id=None):
     booking_date = datetime.strptime(date, "%Y-%m-%d")
     weekday = booking_date.weekday()
 
-    working_hours = get_working_hours(business_id)
+    working_hours = get_working_hours(business_id, service_id)
 
     day_schedule = next(
         (row for row in working_hours if row["weekday"] == weekday),

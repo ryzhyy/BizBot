@@ -1,6 +1,11 @@
 import urllib.parse
 
-from database import get_connection, get_working_hours, DAY_NAMES
+from database import (
+    get_connection,
+    get_working_hours,
+    get_own_working_hours,
+    DAY_NAMES,
+)
 
 
 def get_business_by_owner(owner_telegram_id):
@@ -165,7 +170,7 @@ def build_business_prompt(business_id):
 
     cursor.execute(
         """
-        SELECT name, price, duration
+        SELECT id, name, price, duration
         FROM services
         WHERE business_id = ?
           AND active = 1
@@ -183,6 +188,21 @@ def build_business_prompt(business_id):
     if not business:
         return None
 
+    def format_hours_lines(rows, prefix="- "):
+        lines = ""
+
+        for row in rows:
+            day = DAY_NAMES[row["weekday"]]
+            if row["is_open"]:
+                lines += (
+                    f"{prefix}{day}: "
+                    f"{row['start_time']}–{row['end_time']}\n"
+                )
+            else:
+                lines += f"{prefix}{day}: вихідний\n"
+
+        return lines
+
     services_text = ""
 
     if services:
@@ -192,20 +212,25 @@ def build_business_prompt(business_id):
                 f"{service['price']} грн, "
                 f"{service['duration']} хв\n"
             )
+
+            own_hours = get_own_working_hours(
+                business_id, service["id"]
+            )
+
+            if own_hours:
+                services_text += (
+                    "  (окремий графік саме для цієї послуги:)\n"
+                )
+                services_text += format_hours_lines(
+                    own_hours, prefix="  "
+                )
     else:
         services_text = "- Послуги ще не додані\n"
 
     working_hours_text = ""
 
     if working_hours:
-        for row in working_hours:
-            day = DAY_NAMES[row["weekday"]]
-            if row["is_open"]:
-                working_hours_text += (
-                    f"- {day}: {row['start_time']}–{row['end_time']}\n"
-                )
-            else:
-                working_hours_text += f"- {day}: вихідний\n"
+        working_hours_text = format_hours_lines(working_hours)
     else:
         working_hours_text = "- Графік роботи ще не вказано\n"
 

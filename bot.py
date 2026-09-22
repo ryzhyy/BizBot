@@ -946,8 +946,10 @@ async def button_handler(
             )
             return
 
+        booking_service_id = context.user_data.get("service_id")
+
         available_times = get_available_times(
-            booking_business_id, selected_date
+            booking_business_id, selected_date, booking_service_id
         )
 
         if available_times is None:
@@ -1830,7 +1832,9 @@ async def ai_message(
                 )
                 return
 
-            available_times = get_available_times(business["id"], date)
+            available_times = get_available_times(
+                business["id"], date, service
+            )
 
             if available_times is None:
                 await update.message.reply_text(
