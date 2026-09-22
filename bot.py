@@ -908,17 +908,6 @@ async def button_handler(
 
         await query.message.reply_text(text)
 
-    # CONTACTS
-
-    elif data == "contacts":
-
-        await query.message.reply_text(
-            "📍 Barber Demo\n\n"
-            "Львів\n"
-            "Пн–Сб: 10:00–20:00\n\n"
-            "☎️ +380 XX XXX XX XX"
-        )
-
     # MY BOOKINGS BUTTON
 
     elif data == "mybookings":
