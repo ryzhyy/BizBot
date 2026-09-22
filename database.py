@@ -257,6 +257,22 @@ def init_database():
         "ON customers(business_id, telegram_id)"
     )
 
+    # Migration: add service_id to working_hours (per-service schedules).
+    # NULL service_id = the business-wide default schedule (existing rows).
+    cursor.execute("PRAGMA table_info(working_hours)")
+    working_hours_columns = [row[1] for row in cursor.fetchall()]
+
+    if "service_id" not in working_hours_columns:
+        cursor.execute(
+            "ALTER TABLE working_hours "
+            "ADD COLUMN service_id INTEGER DEFAULT NULL"
+        )
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_working_hours_business_service "
+        "ON working_hours(business_id, service_id, weekday)"
+    )
+
     conn.commit()
     conn.close()
 def set_business_schedule(
@@ -325,19 +341,32 @@ def set_working_hours(
     weekday,
     start_time,
     end_time,
-    is_open=1
+    is_open=1,
+    service_id=None
 ):
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Прибираємо старий графік цього дня
-    cursor.execute(
-        """
-        DELETE FROM working_hours
-        WHERE business_id = ? AND weekday = ?
-        """,
-        (business_id, weekday)
-    )
+    # Прибираємо старий графік цього дня (для цього ж service_id:
+    # NULL — загальний графік бізнесу, число — графік конкретної послуги)
+    if service_id is None:
+        cursor.execute(
+            """
+            DELETE FROM working_hours
+            WHERE business_id = ? AND weekday = ?
+              AND service_id IS NULL
+            """,
+            (business_id, weekday)
+        )
+    else:
+        cursor.execute(
+            """
+            DELETE FROM working_hours
+            WHERE business_id = ? AND weekday = ?
+              AND service_id = ?
+            """,
+            (business_id, weekday, service_id)
+        )
 
     # Записуємо новий
     cursor.execute(
@@ -347,16 +376,18 @@ def set_working_hours(
             weekday,
             start_time,
             end_time,
-            is_open
+            is_open,
+            service_id
         )
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
             business_id,
             weekday,
             start_time,
             end_time,
-            is_open
+            is_open,
+            service_id
         )
     )
 
@@ -364,7 +395,49 @@ def set_working_hours(
     conn.close()
 
 
-def get_working_hours(business_id):
+def get_working_hours(business_id, service_id=None):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if service_id is not None:
+        cursor.execute(
+            """
+            SELECT weekday, start_time, end_time, is_open
+            FROM working_hours
+            WHERE business_id = ? AND service_id = ?
+            ORDER BY weekday
+            """,
+            (business_id, service_id)
+        )
+
+        rows = cursor.fetchall()
+
+        if rows:
+            conn.close()
+            return rows
+
+    # Немає власного графіка для цієї послуги (або service_id не
+    # задано) — беремо загальний графік бізнесу.
+    cursor.execute(
+        """
+        SELECT weekday, start_time, end_time, is_open
+        FROM working_hours
+        WHERE business_id = ? AND service_id IS NULL
+        ORDER BY weekday
+        """,
+        (business_id,)
+    )
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    return rows
+
+
+def get_own_working_hours(business_id, service_id):
+    """Графік, заданий САМЕ для цієї послуги, без fallback на
+    загальний графік бізнесу. Порожній список = власного графіка
+    немає (get_working_hours() для цієї послуги поверне fallback)."""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -372,10 +445,10 @@ def get_working_hours(business_id):
         """
         SELECT weekday, start_time, end_time, is_open
         FROM working_hours
-        WHERE business_id = ?
+        WHERE business_id = ? AND service_id = ?
         ORDER BY weekday
         """,
-        (business_id,)
+        (business_id, service_id)
     )
 
     rows = cursor.fetchall()
