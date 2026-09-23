@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from setup import get_setup_handler
 from schedule import get_schedule_handler
-from database import init_database
+from database import init_database, get_working_hours
 from service_emoji import get_service_emoji
 
 from business_context import (
@@ -535,7 +535,7 @@ def build_service_choice_keyboard(services, business_category=None):
     return InlineKeyboardMarkup(keyboard)
 
 
-def build_date_choice_keyboard():
+def build_date_choice_keyboard(business_id=None, service_id=None, count=4):
     today = datetime.now()
 
     weekdays = [
@@ -551,10 +551,30 @@ def build_date_choice_keyboard():
         "жовтня", "листопада", "грудня"
     ]
 
-    date_buttons = []
+    # Якщо знаємо бізнес — не пропонуємо дні, коли він не працює
+    # (наприклад, неділю, якщо вихідний саме тоді), а одразу шукаємо
+    # наступний робочий день далі — щоб клієнт не тицяв у кнопку,
+    # яка все одно скаже "ми не працюємо".
+    open_weekdays = None
 
-    for i in range(1, 5):
-        date = today + timedelta(days=i)
+    if business_id is not None:
+        working_hours = get_working_hours(business_id, service_id)
+        open_weekdays = {
+            row["weekday"] for row in working_hours if row["is_open"]
+        }
+
+    date_buttons = []
+    offset = 1
+
+    # Обмежуємо пошук місяцем наперед, щоб не зациклитись, якщо у
+    # бізнесу взагалі не налаштований графік (тоді жоден день не
+    # вважається робочим).
+    while len(date_buttons) < count and offset <= 30:
+        date = today + timedelta(days=offset)
+        offset += 1
+
+        if open_weekdays is not None and date.weekday() not in open_weekdays:
+            continue
 
         label = (
             f"{weekdays[date.weekday()]}, "
@@ -1027,7 +1047,9 @@ async def button_handler(
         await query.message.reply_text(
             f"{emoji} {service['name']}\n\n"
             "📅 Оберіть зручний день:",
-            reply_markup=build_date_choice_keyboard()
+            reply_markup=build_date_choice_keyboard(
+                booking_business_id, service["id"]
+            )
         )
 
     # DATE
@@ -1942,7 +1964,9 @@ async def ai_message(
             if not date:
                 await update.message.reply_text(
                     "На який день хочете записатися?",
-                    reply_markup=build_date_choice_keyboard()
+                    reply_markup=build_date_choice_keyboard(
+                        business["id"], service
+                    )
                 )
                 return
 
@@ -1950,7 +1974,9 @@ async def ai_message(
                 await update.message.reply_text(
                     DAILY_LIMIT_REACHED_TEXT
                     + daily_limit_contact_line(business),
-                    reply_markup=build_date_choice_keyboard()
+                    reply_markup=build_date_choice_keyboard(
+                        business["id"], service
+                    )
                 )
                 return
 
@@ -1962,7 +1988,9 @@ async def ai_message(
                 await update.message.reply_text(
                     "😔 У цей день ми не працюємо.\n"
                     "Оберіть, будь ласка, інший день.",
-                    reply_markup=build_date_choice_keyboard()
+                    reply_markup=build_date_choice_keyboard(
+                        business["id"], service
+                    )
                 )
                 return
 
