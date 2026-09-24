@@ -3,7 +3,7 @@ from datetime import datetime
 
 from openai import AsyncOpenAI
 
-from business_context import get_business_services
+from plans import get_visible_services
 
 
 class AIManager:
@@ -24,7 +24,8 @@ class AIManager:
         today = datetime.now().strftime("%Y-%m-%d")
         weekday = datetime.now().strftime("%A")
 
-        services = get_business_services(business_id) if business_id else []
+        # Лише послуги, на які клієнт може записатися за тарифом бізнесу.
+        services = get_visible_services(business_id) if business_id else []
 
         if services:
             services_block = "\n".join(

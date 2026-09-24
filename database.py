@@ -322,6 +322,24 @@ def init_database():
             )
 
     # -------------------------
+    # ТАРИФИ: pro_until — до коли діє Pro (NULL = Free).
+    # pro_warning_sent_for / pro_expired_notified_for — для якого саме
+    # pro_until уже надіслано попередження / повідомлення про кінець,
+    # щоб не слати повторно.
+    # -------------------------
+
+    cursor.execute("PRAGMA table_info(businesses)")
+    business_columns = {row["name"] for row in cursor.fetchall()}
+
+    for column in (
+        "pro_until", "pro_warning_sent_for", "pro_expired_notified_for"
+    ):
+        if column not in business_columns:
+            cursor.execute(
+                f"ALTER TABLE businesses ADD COLUMN {column} TEXT DEFAULT NULL"
+            )
+
+    # -------------------------
     # BOT USERS — хто вже колись запускав бота. Потрібно, щоб
     # сповіщати власника платформи лише про ПЕРШИЙ /start людини.
     # -------------------------

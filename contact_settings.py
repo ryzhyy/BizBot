@@ -8,6 +8,7 @@ from telegram.ext import (
     filters,
 )
 
+from plans import is_pro, pro_required_text
 from business_context import (
     get_business_by_owner,
     set_business_contact,
@@ -234,6 +235,10 @@ async def setfaq_start(
         await update.message.reply_text(
             "⚠️ Спочатку створіть бізнес через /setup."
         )
+        return ConversationHandler.END
+
+    if not is_pro(business["id"]):
+        await update.message.reply_text(pro_required_text("FAQ для клієнтів"))
         return ConversationHandler.END
 
     context.user_data["faq_business_id"] = business["id"]

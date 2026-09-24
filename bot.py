@@ -30,7 +30,19 @@ from location_settings import get_setlocation_handler
 from platform_admin import get_platform_handlers, OWNER_TELEGRAM_ID
 from client_faq import build_faq_view, get_client_faq_handler
 from error_reporting import error_handler, report_error
-from owner_events import on_start, on_booking_created
+from owner_events import on_start, on_booking_created, notify_platform_owner
+from plans import (
+    PLATFORM_CONTACT,
+    PRO_PRICE_UAH,
+    check_pro_expirations,
+    get_visible_service_by_id,
+    get_visible_services,
+    hidden_service_ids,
+    is_pro,
+    plan_label,
+    plan_overview_text,
+    pro_required_text,
+)
 from bookings import (
     get_customer,
     get_or_create_customer,
@@ -122,6 +134,7 @@ OWNER_MENU_KEYBOARD = ReplyKeyboardMarkup(
         ["📋 Мої послуги", "❓ Допомога"],
         ["⚙️ Контакт для клієнтів", "❓ Налаштувати FAQ"],
         ["📍 Локація бізнесу", "👀 Режим клієнта"],
+        ["💎 Мій тариф"],
     ],
     resize_keyboard=True
 )
@@ -163,6 +176,7 @@ REPLY_MENU_BUTTON_TEXTS = [
     "❓ Допомога",
     "👀 Режим клієнта",
     "🔙 Режим власника",
+    "💎 Мій тариф",
 ]
 
 
@@ -180,7 +194,7 @@ async def start_booking(
         )
         return
 
-    services = get_business_services(business["id"])
+    services = get_visible_services(business["id"])
 
     if not services:
         await update.message.reply_text(
@@ -212,7 +226,7 @@ async def show_business_services(
         )
         return
 
-    services = get_business_services(business["id"])
+    services = get_visible_services(business["id"])
 
     if not services:
         await update.message.reply_text(
@@ -243,11 +257,13 @@ async def show_my_business(
         return
 
     services = get_business_services(business["id"])
+    hidden_ids = set(hidden_service_ids(business["id"]))
 
     if services:
         services_text = "\n".join(
             f"{get_service_emoji(service['name'], business['category'])} "
             f"{service['name']} — {service['price']} грн"
+            + (" 🔒 приховано (Free)" if service["id"] in hidden_ids else "")
             for service in services
         )
     else:
@@ -277,9 +293,15 @@ async def show_my_business(
     services_text = escape_markdown(services_text, version=1)
     client_link_text = escape_markdown(client_link, version=1)
 
+    location_note = (
+        "\n🔒 Клієнти не бачать локацію — це функція Pro"
+        if maps_link and not is_pro(business["id"]) else ""
+    )
+
     await update.message.reply_text(
         f"🏢 {business_name}\n"
-        f"📍 {city_display}\n\n"
+        f"💳 Тариф: {escape_markdown(plan_label(business['id']), version=1)}\n"
+        f"📍 {city_display}{location_note}\n\n"
         f"🧾 Послуги:\n{services_text}\n\n"
         f"🔗 Посилання для клієнтів:\n{client_link_text}\n\n"
         f"📊 Активних записів: {active_bookings_count}",
@@ -352,7 +374,7 @@ async def build_client_help_text(business, context):
             else "☎️ Телефон ще не вказано, зверніться через AI-чат"
         )
 
-    maps_link = get_business_maps_link(business) if business else None
+    maps_link = get_business_maps_link(business) if business and is_pro(business["id"]) else None
 
     location_line = (
         f"📍 {html_escape(maps_link)}\n\n"
@@ -368,7 +390,7 @@ async def build_client_help_text(business, context):
         "• Перенести запис — напишіть «перенеси мій запис на ...»"
     )
 
-    faq_items = get_faq_items(business["id"]) if business else []
+    faq_items = get_faq_items(business["id"]) if business and is_pro(business["id"]) else []
 
     # Самі питання-відповіді тепер живуть в окремому інтерактивному
     # FAQ (кнопка «📖 Часті запитання» / /faq), тут — лише підказка.
@@ -452,6 +474,8 @@ async def reply_keyboard_router(
         await switch_to_client_mode(update, context)
     elif text == "🔙 Режим власника":
         await switch_to_owner_mode(update, context)
+    elif text == "💎 Мій тариф":
+        await plan_command(update, context)
 
 
 
@@ -468,10 +492,48 @@ def daily_limit_contact_line(business):
     return ""
 
 
+# Клієнту не пишемо про «безкоштовний тариф» — це внутрішня справа
+# власника бізнесу.
 DAILY_LIMIT_REACHED_TEXT = (
-    "😔 На цей день ліміт безкоштовних записів вичерпано. "
+    "😔 На цей день онлайн-запис уже заповнений. "
     "Оберіть, будь ласка, інший день."
 )
+
+# (business_id, дата), про які власника вже попереджено — щоб не слати
+# повідомлення про ліміт на кожну спробу клієнта.
+_daily_limit_notified = set()
+
+
+async def notify_owner_daily_limit(bot, business, date):
+    if not business:
+        return
+
+    key = (business["id"], date)
+
+    if key in _daily_limit_notified:
+        return
+
+    _daily_limit_notified.add(key)
+
+    try:
+        await bot.send_message(
+            chat_id=business["owner_telegram_id"],
+            text=(
+                f"📈 Клієнт хотів записатися до «{business['name']}» "
+                f"на {date}, але на тарифі Free доступний лише 1 запис "
+                "на день — тож цей запис не відбувся.\n\n"
+                f"З Pro ({PRO_PRICE_UAH} ₴/міс) бот приймає записи "
+                f"без обмежень. Щоб підключити, напишіть {PLATFORM_CONTACT}"
+            )
+        )
+    except Exception as error:
+        print("DAILY LIMIT OWNER NOTIFY ERROR:", error)
+
+    await notify_platform_owner(
+        bot,
+        f"📈 «{business['name']}» (Free) втратив запис на {date} через "
+        "ліміт 1 запис/день — гарний момент запропонувати Pro."
+    )
 
 
 async def notify_owner_of_booking(
@@ -552,6 +614,20 @@ async def finalize_booking(
     date, time, success_text
 ):
     user = update.effective_user
+
+    # Повторна перевірка ліміту Free саме перед збереженням: поки клієнт
+    # обирав час, день міг уже заповнитись іншим записом.
+    if is_daily_free_limit_reached(business["id"], date):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=(
+                DAILY_LIMIT_REACHED_TEXT
+                + daily_limit_contact_line(business)
+            ),
+            reply_markup=client_menu_keyboard_for(user.id)
+        )
+        await notify_owner_daily_limit(context.bot, business, date)
+        return
 
     customer_id = get_or_create_customer(
         business["id"], user.id, user.full_name
@@ -717,7 +793,7 @@ def sync_booking_context(context, business_id, service_id, date=None):
     context.user_data["service_id"] = service_id
 
     resolved_service = (
-        get_service_by_id(service_id, business_id)
+        get_visible_service_by_id(service_id, business_id)
         if service_id else None
     )
     context.user_data["service_name"] = (
@@ -804,7 +880,7 @@ async def send_client_welcome(update, context, business):
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    maps_link = get_business_maps_link(business)
+    maps_link = get_business_maps_link(business) if is_pro(business["id"]) else None
 
     location_line = (
         f"📍 Ми тут: {maps_link}\n\n"
@@ -838,6 +914,12 @@ async def switch_to_client_mode(update, context):
         )
         return
 
+    if not is_pro(business["id"]):
+        await update.message.reply_text(
+            pro_required_text("Перегляд бота в режимі клієнта")
+        )
+        return
+
     # Не змішуємо незавершений запис/діалог із попереднього режиму.
     clear_booking_flow_state(context)
     context.user_data["client_business_id"] = business["id"]
@@ -851,6 +933,19 @@ async def switch_to_client_mode(update, context):
     )
 
     await send_client_welcome(update, context, business)
+
+
+async def plan_command(update, context):
+    business = get_business_by_owner(update.effective_user.id)
+
+    if not business:
+        await update.message.reply_text(
+            "У вас ще немає власного бізнесу. "
+            "Створіть його через /setup."
+        )
+        return
+
+    await update.message.reply_text(plan_overview_text(business))
 
 
 async def switch_to_owner_mode(update, context):
@@ -1055,7 +1150,7 @@ async def button_handler(
             )
             return
 
-        services = get_business_services(business["id"])
+        services = get_visible_services(business["id"])
 
         if not services:
             await query.message.reply_text(
@@ -1130,7 +1225,7 @@ async def button_handler(
             )
             return
 
-        services = get_business_services(business["id"])
+        services = get_visible_services(business["id"])
 
         if not services:
             await query.message.reply_text(
@@ -1157,7 +1252,7 @@ async def button_handler(
 
         service = next(
             (
-                s for s in get_business_services(booking_business_id)
+                s for s in get_visible_services(booking_business_id)
                 if s["id"] == service_id
             ),
             None
@@ -1203,7 +1298,14 @@ async def button_handler(
             booking_business = get_business_by_id(booking_business_id)
             await query.message.reply_text(
                 DAILY_LIMIT_REACHED_TEXT
-                + daily_limit_contact_line(booking_business)
+                + daily_limit_contact_line(booking_business),
+                reply_markup=build_date_choice_keyboard(
+                    booking_business_id,
+                    context.user_data.get("service_id")
+                )
+            )
+            await notify_owner_daily_limit(
+                context.bot, booking_business, selected_date
             )
             return
 
@@ -1951,7 +2053,7 @@ async def ai_message(
                 )
                 return
 
-            confirm_service = get_service_by_id(
+            confirm_service = get_visible_service_by_id(
                 service, confirm_business["id"]
             )
 
@@ -2027,7 +2129,7 @@ async def ai_message(
                 )
                 return
 
-            choose_time_service = get_service_by_id(
+            choose_time_service = get_visible_service_by_id(
                 service, choose_time_business["id"]
             )
 
@@ -2073,7 +2175,7 @@ async def ai_message(
                 return
 
             if not service:
-                booking_services = get_business_services(business["id"])
+                booking_services = get_visible_services(business["id"])
 
                 context.user_data["booking_business_id"] = business["id"]
 
@@ -2113,6 +2215,7 @@ async def ai_message(
                         business["id"], service
                     )
                 )
+                await notify_owner_daily_limit(context.bot, business, date)
                 return
 
             available_times = get_available_times(
@@ -2147,7 +2250,7 @@ async def ai_message(
             # Якщо клієнт одразу назвав конкретний вільний час —
             # не показуємо повний список, а одразу йдемо на підтвердження
             if time and time in available_times:
-                booking_service = get_service_by_id(
+                booking_service = get_visible_service_by_id(
                     service, business["id"]
                 )
 
@@ -2367,10 +2470,18 @@ async def debug_client_help(
     )
 
 
+async def run_pro_expiration_check(context: ContextTypes.DEFAULT_TYPE):
+    await check_pro_expirations(context.bot)
+
+
 async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
     bookings = get_upcoming_bookings_needing_reminder(hours_ahead=2)
 
     for booking in bookings:
+        # Нагадування клієнтам — функція Pro.
+        if not is_pro(booking["business_id"]):
+            continue
+
         reminder_emoji = get_service_emoji(
             booking["service"], booking["business_category"]
         )
@@ -2416,6 +2527,7 @@ DEFAULT_COMMANDS = [
     BotCommand("mylink", "Посилання для клієнтів"),
     BotCommand("mybookings", "Мої записи"),
     BotCommand("faq", "Часті запитання"),
+    BotCommand("plan", "Мій тариф"),
     BotCommand("admin", "Панель власника"),
 ]
 
@@ -2514,6 +2626,13 @@ def main():
         )
     )
 
+    app.add_handler(
+        CommandHandler(
+            "plan",
+            plan_command
+        )
+    )
+
     # Має стояти ДО загального button_handler, який ловить усі callback-и.
     app.add_handler(get_client_faq_handler())
 
@@ -2551,6 +2670,13 @@ def main():
 
     # Усі неперехоплені помилки — власнику платформи в Telegram.
     app.add_error_handler(error_handler)
+
+    # Раз на годину: попередження про кінець Pro і перехід на Free.
+    app.job_queue.run_repeating(
+        run_pro_expiration_check,
+        interval=3600,
+        first=60
+    )
 
     app.job_queue.run_repeating(
         send_reminders,

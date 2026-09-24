@@ -20,6 +20,14 @@ from business_context import (
     get_business_maps_link,
 )
 from bookings import get_business_bookings
+from plans import (
+    PRO_FEATURES_TEXT,
+    disable_pro,
+    extend_pro,
+    hidden_service_ids,
+    is_pro,
+    plan_label,
+)
 
 
 OWNER_TELEGRAM_ID = os.getenv("OWNER_TELEGRAM_ID")
@@ -73,7 +81,7 @@ def _business_list_message():
 
     keyboard = [
         [InlineKeyboardButton(
-            f"🏢 {business['name']} "
+            f"{'💎' if is_pro(business['id']) else '🆓'} {business['name']} "
             f"({business['category'] or 'без категорії'})",
             callback_data=f"platform_biz_{business['id']}"
         )]
@@ -137,20 +145,40 @@ def _business_detail_message(business_id):
     elif business["phone"]:
         contact_line = f"☎️ {business['phone']}\n"
 
+    hidden = len(hidden_service_ids(business_id))
+    hidden_note = (
+        f"  🔒 приховано від клієнтів (Free): {hidden}\n" if hidden else ""
+    )
+
     text = (
         f"🏢 {business['name']}\n"
+        f"💳 Тариф: {plan_label(business_id)}\n"
         f"🏷 Категорія: {business['category'] or 'не вказано'}\n"
         f"🌆 Місто: {business['city'] or 'не вказано'}\n"
         f"👤 Власник (Telegram ID): {business['owner_telegram_id']}\n"
         f"{contact_line}"
         f"{location_line}\n"
-        f"🧾 Послуги ({len(services)}):\n{services_text}\n"
+        f"🧾 Послуги ({len(services)}):\n{services_text}{hidden_note}\n"
         f"🗓 Графік:\n{_format_hours(business_id)}\n"
         f"❓ FAQ: {faq_count} записів\n\n"
         f"📅 Майбутні записи ({len(bookings)}):\n{bookings_text}"
     )
 
-    keyboard = InlineKeyboardMarkup([
+    plan_rows = [[
+        InlineKeyboardButton(
+            "💎 +14 днів Pro", callback_data=f"platform_pro_{business_id}_14"
+        ),
+        InlineKeyboardButton(
+            "💎 +30 днів Pro", callback_data=f"platform_pro_{business_id}_30"
+        ),
+    ]]
+
+    if is_pro(business_id):
+        plan_rows.append([InlineKeyboardButton(
+            "🆓 Вимкнути Pro", callback_data=f"platform_prooff_{business_id}"
+        )])
+
+    keyboard = InlineKeyboardMarkup(plan_rows + [
         [InlineKeyboardButton(
             "⬅️ До списку бізнесів",
             callback_data="platform_back"
@@ -231,8 +259,131 @@ async def platform_close(update, context):
             pass
 
 
+# ---------- керування тарифом (єдина «записувальна» дія панелі) ----------
+
+async def _notify_business_owner(bot, business, text):
+    try:
+        await bot.send_message(chat_id=business["owner_telegram_id"], text=text)
+        return True
+    except Exception as error:
+        print("PLAN OWNER NOTIFY ERROR:", error)
+        return False
+
+
+async def platform_extend_pro(update, context):
+    query = update.callback_query
+
+    if not is_platform_owner(query.from_user.id):
+        await query.answer()
+        return
+
+    _, _, business_id, days = query.data.split("_")
+    business_id, days = int(business_id), int(days)
+    business = get_business_by_id(business_id)
+
+    if not business:
+        await query.answer("⚠️ Бізнес не знайдено.", show_alert=True)
+        return
+
+    new_until = extend_pro(business_id, days)
+    until_text = new_until.strftime("%d.%m.%Y %H:%M")
+
+    delivered = await _notify_business_owner(
+        context.bot,
+        business,
+        f"🎉 Для «{business['name']}» активовано Pro до {until_text}!\n\n"
+        f"{PRO_FEATURES_TEXT}\n\n"
+        "Що можна налаштувати зараз:\n"
+        "• /setfaq — часті запитання для клієнтів\n"
+        "• /setlocation — локація бізнесу\n"
+        "• «👀 Режим клієнта» — подивитися бота очима клієнта\n\n"
+        "Ваш поточний тариф завжди видно в «💎 Мій тариф» або /plan."
+    )
+
+    await query.answer(
+        f"✅ Pro до {until_text}"
+        + ("" if delivered else " (власника не вдалося сповістити)"),
+        show_alert=True
+    )
+
+    text, keyboard = _business_detail_message(business_id)
+    await _show_in_place(query, text, keyboard)
+
+
+async def platform_disable_pro(update, context):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_platform_owner(query.from_user.id):
+        return
+
+    business_id = int(query.data.rsplit("_", 1)[1])
+    business = get_business_by_id(business_id)
+
+    if not business:
+        return
+
+    # Перепитуємо, щоб випадковий тап не вимкнув оплачений тариф.
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "✅ Так, перевести на Free",
+            callback_data=f"platform_prooffyes_{business_id}"
+        )],
+        [InlineKeyboardButton(
+            "⬅️ Ні, назад", callback_data=f"platform_biz_{business_id}"
+        )],
+    ])
+
+    await _show_in_place(
+        query,
+        f"🆓 Вимкнути Pro для «{business['name']}» зараз?\n\n"
+        f"Зараз: {plan_label(business_id)}\n\n"
+        "Бізнес одразу перейде на Free, власник отримає повідомлення. "
+        "Дані не видаляються.",
+        keyboard
+    )
+
+
+async def platform_disable_pro_confirmed(update, context):
+    query = update.callback_query
+
+    if not is_platform_owner(query.from_user.id):
+        await query.answer()
+        return
+
+    business_id = int(query.data.rsplit("_", 1)[1])
+    business = get_business_by_id(business_id)
+
+    if not business:
+        await query.answer("⚠️ Бізнес не знайдено.", show_alert=True)
+        return
+
+    disable_pro(business_id)
+
+    await _notify_business_owner(
+        context.bot,
+        business,
+        f"ℹ️ Тариф «{business['name']}» змінено на Free.\n\n"
+        "Усі ваші дані збережені. Деталі — у «💎 Мій тариф» або /plan."
+    )
+
+    await query.answer("🆓 Переведено на Free", show_alert=True)
+
+    text, keyboard = _business_detail_message(business_id)
+    await _show_in_place(query, text, keyboard)
+
+
 def get_platform_handlers():
     return [
+        CallbackQueryHandler(
+            platform_extend_pro, pattern=r"^platform_pro_\d+_\d+$"
+        ),
+        CallbackQueryHandler(
+            platform_disable_pro, pattern=r"^platform_prooff_\d+$"
+        ),
+        CallbackQueryHandler(
+            platform_disable_pro_confirmed, pattern=r"^platform_prooffyes_\d+$"
+        ),
         CommandHandler("platform", platform_start),
         CallbackQueryHandler(
             platform_business_detail, pattern=r"^platform_biz_\d+$"
