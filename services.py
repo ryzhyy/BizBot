@@ -8,6 +8,12 @@ from telegram.ext import (
 )
 
 from database import get_connection
+from plans import (
+    FREE_MAX_SERVICES,
+    can_add_service,
+    hidden_service_ids,
+    pro_required_text,
+)
 from owner_events import on_service_added
 
 
@@ -44,6 +50,14 @@ async def addservice_start(
     if not business:
         await update.message.reply_text(
             "⚠️ Спочатку створіть бізнес через /setup."
+        )
+        return ConversationHandler.END
+
+    if not can_add_service(business["id"]):
+        await update.message.reply_text(
+            f"⚠️ На тарифі Free можна мати до {FREE_MAX_SERVICES} послуг, "
+            "і цей ліміт уже досягнуто.\n\n"
+            + pro_required_text("Необмежена кількість послуг")
         )
         return ConversationHandler.END
 
@@ -228,9 +242,16 @@ async def services_list(
 
     text = f"🏢 {business['name']}\n\n📋 Послуги:\n\n"
 
+    hidden_ids = set(hidden_service_ids(business["id"]))
+
     for service in services:
+        hidden_mark = (
+            "🔒 приховано від клієнтів (Free)\n"
+            if service["id"] in hidden_ids else ""
+        )
         text += (
             f"#{service['id']} — {service['name']}\n"
+            f"{hidden_mark}"
             f"💰 {service['price']} грн\n"
             f"⏱ {service['duration']} хв\n\n"
         )

@@ -1,38 +1,13 @@
 from datetime import datetime, timedelta
 
 from database import get_connection, get_working_hours
-
-
-# Free-tier businesses can accept this many confirmed bookings per
-# calendar day through the bot. Raise/bypass this once paid plans
-# exist.
-FREE_DAILY_BOOKING_LIMIT = 1
+from plans import daily_limit_reached
 
 
 def is_daily_free_limit_reached(business_id, booking_date):
-    # ТИМЧАСОВО ВИМКНЕНО: ліміт заважає повноцінно тестувати бота на
-    # реальному бізнесі. Платних планів ще немає, тож поки що
-    # дозволяємо необмежену кількість записів на день. Щоб повернути
-    # ліміт — розкоментувати блок нижче й прибрати "return False".
-    return False
-
-    # conn = get_connection()
-    # cursor = conn.cursor()
-    #
-    # cursor.execute(
-    #     """
-    #     SELECT COUNT(*) AS count FROM bookings
-    #     WHERE business_id = ?
-    #       AND booking_date = ?
-    #       AND status = 'confirmed'
-    #     """,
-    #     (business_id, booking_date)
-    # )
-    #
-    # count = cursor.fetchone()["count"]
-    # conn.close()
-    #
-    # return count >= FREE_DAILY_BOOKING_LIMIT
+    # Ліміт діє лише для тарифу Free (1 запис на день); для Pro —
+    # без обмежень. Уся логіка тарифів — у plans.py.
+    return daily_limit_reached(business_id, booking_date)
 
 
 def get_customer(business_id, telegram_id):
@@ -344,6 +319,7 @@ def get_upcoming_bookings_needing_reminder(hours_ahead=2):
                services.name AS service,
                bookings.booking_date AS date,
                bookings.booking_time AS time,
+               businesses.id AS business_id,
                businesses.name AS business_name,
                businesses.category AS business_category
         FROM bookings

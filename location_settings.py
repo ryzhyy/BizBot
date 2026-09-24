@@ -14,6 +14,7 @@ from telegram.ext import (
     filters,
 )
 
+from plans import is_pro, pro_required_text
 from business_context import (
     get_business_by_owner,
     set_business_location,
@@ -40,6 +41,12 @@ async def setlocation_start(
     if not business:
         await update.message.reply_text(
             "⚠️ Спочатку створіть бізнес через /setup."
+        )
+        return ConversationHandler.END
+
+    if not is_pro(business["id"]):
+        await update.message.reply_text(
+            pro_required_text("Посилання на локацію бізнесу для клієнтів")
         )
         return ConversationHandler.END
 

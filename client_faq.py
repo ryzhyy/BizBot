@@ -15,6 +15,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler
 
 from business_context import get_business_by_id, get_faq_items
+from plans import is_pro
 
 
 MAX_BUTTON_LABEL = 55
@@ -56,7 +57,9 @@ def build_faq_view(business, selected_item_id=None):
         f"<b>📖 Часті запитання «{html_escape(business['name'])}»</b>"
     )
 
-    items = get_faq_items(business["id"])
+    # FAQ — функція Pro: на Free клієнт бачить «порожньо» (дані
+    # власника не видаляються й повернуться разом із Pro).
+    items = get_faq_items(business["id"]) if is_pro(business["id"]) else []
 
     if not items:
         return (

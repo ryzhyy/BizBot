@@ -1,5 +1,7 @@
 import urllib.parse
 
+from plans import get_visible_services, is_pro
+
 from database import (
     get_connection,
     get_working_hours,
@@ -199,7 +201,8 @@ def build_business_prompt(business_id):
         (business_id,)
     )
 
-    services = cursor.fetchall()
+    # Для AI — лише послуги, доступні клієнтам за тарифом (на Free — 2).
+    services = get_visible_services(business_id)
 
     conn.close()
 
@@ -262,7 +265,8 @@ def build_business_prompt(business_id):
     else:
         contact = business["phone"] or "не вказано"
 
-    faq_items = get_faq_items(business_id)
+    # FAQ — функція Pro: на Free AI не використовує відповіді з FAQ.
+    faq_items = get_faq_items(business_id) if is_pro(business_id) else []
 
     if faq_items:
         faq_text = ""
