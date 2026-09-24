@@ -117,7 +117,7 @@ OWNER_MENU_KEYBOARD = ReplyKeyboardMarkup(
         ["📝 Мій бізнес", "➕ Додати послугу"],
         ["📋 Мої послуги", "❓ Допомога"],
         ["⚙️ Контакт для клієнтів", "❓ Налаштувати FAQ"],
-        ["📍 Локація бізнесу"],
+        ["📍 Локація бізнесу", "👀 Режим клієнта"],
     ],
     resize_keyboard=True
 )
@@ -131,6 +131,24 @@ CLIENT_MENU_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+# Те саме клієнтське меню, але для власника бізнесу, який зараз
+# дивиться на бота очима клієнта — з кнопкою повернення.
+OWNER_AS_CLIENT_MENU_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        ["✂️ Записатися", "🧾 Послуги та ціни"],
+        ["📅 Мої записи", "📖 Часті запитання"],
+        ["❓ Допомога", "🔙 Режим власника"],
+    ],
+    resize_keyboard=True
+)
+
+
+def client_menu_keyboard_for(telegram_id):
+    if get_business_by_owner(telegram_id):
+        return OWNER_AS_CLIENT_MENU_KEYBOARD
+
+    return CLIENT_MENU_KEYBOARD
+
 REPLY_MENU_BUTTON_TEXTS = [
     "📝 Мій бізнес",
     "📋 Мої послуги",
@@ -139,6 +157,8 @@ REPLY_MENU_BUTTON_TEXTS = [
     "📅 Мої записи",
     "📖 Часті запитання",
     "❓ Допомога",
+    "👀 Режим клієнта",
+    "🔙 Режим власника",
 ]
 
 
@@ -415,6 +435,10 @@ async def reply_keyboard_router(
         await faq_command(update, context)
     elif text == "❓ Допомога":
         await help_button(update, context)
+    elif text == "👀 Режим клієнта":
+        await switch_to_client_mode(update, context)
+    elif text == "🔙 Режим власника":
+        await switch_to_owner_mode(update, context)
 
 
 
@@ -535,7 +559,7 @@ async def finalize_booking(
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=success_text,
-        reply_markup=CLIENT_MENU_KEYBOARD
+        reply_markup=client_menu_keyboard_for(update.effective_user.id)
     )
 
 
@@ -702,50 +726,7 @@ async def start(
         # підключений цей клієнт
         context.user_data["client_business_id"] = business["id"]
 
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "✂️ Записатися",
-                    callback_data="book"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🧾 Послуги та ціни",
-                    callback_data="services"
-                ),
-                InlineKeyboardButton(
-                    "📅 Мої записи",
-                    callback_data="mybookings"
-                )
-            ]
-        ]
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        maps_link = get_business_maps_link(business)
-
-        location_line = (
-            f"📍 Ми тут: {maps_link}\n\n"
-            if maps_link else ""
-        )
-
-        await update.message.reply_text(
-            f"👋 Вітаємо у «{business['name']}»!\n\n"
-            f"✨ Я ваш персональний AI-асистент.\n\n"
-            f"Допоможу обрати послугу, дізнатися ціну "
-            f"та знайти зручний час для запису.\n\n"
-            f"{location_line}"
-            f"Оберіть дію нижче 👇\n\n"
-            f"💬 Або просто напишіть мені, наприклад:\n"
-            f"«Хочу стрижку завтра о 17:00»",
-            reply_markup=reply_markup
-        )
-
-        await update.message.reply_text(
-            "Або скористайтесь меню нижче 👇",
-            reply_markup=CLIENT_MENU_KEYBOARD
-        )
+        await send_client_welcome(update, context, business)
         return
 
     # Звичайний /start без business ID —
@@ -768,6 +749,97 @@ async def start(
         "Якщо ви клієнт — відкрийте персональне "
         "посилання потрібного бізнесу.",
         reply_markup=ReplyKeyboardRemove()
+    )
+
+
+async def send_client_welcome(update, context, business):
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "✂️ Записатися",
+                callback_data="book"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🧾 Послуги та ціни",
+                callback_data="services"
+            ),
+            InlineKeyboardButton(
+                "📅 Мої записи",
+                callback_data="mybookings"
+            )
+        ]
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    maps_link = get_business_maps_link(business)
+
+    location_line = (
+        f"📍 Ми тут: {maps_link}\n\n"
+        if maps_link else ""
+    )
+
+    await update.message.reply_text(
+        f"👋 Вітаємо у «{business['name']}»!\n\n"
+        f"✨ Я ваш персональний AI-асистент.\n\n"
+        f"Допоможу обрати послугу, дізнатися ціну "
+        f"та знайти зручний час для запису.\n\n"
+        f"{location_line}"
+        f"Оберіть дію нижче 👇\n\n"
+        f"💬 Або просто напишіть мені, наприклад:\n"
+        f"«Хочу стрижку завтра о 17:00»",
+        reply_markup=reply_markup
+    )
+
+    await update.message.reply_text(
+        "Або скористайтесь меню нижче 👇",
+        reply_markup=client_menu_keyboard_for(update.effective_user.id)
+    )
+
+
+async def switch_to_client_mode(update, context):
+    business = get_business_by_owner(update.effective_user.id)
+
+    if not business:
+        await update.message.reply_text(
+            "👀 Режим клієнта доступний лише власникам бізнесу."
+        )
+        return
+
+    # Не змішуємо незавершений запис/діалог із попереднього режиму.
+    clear_booking_flow_state(context)
+    context.user_data["client_business_id"] = business["id"]
+
+    await update.message.reply_text(
+        f"👀 Режим клієнта «{business['name']}»\n\n"
+        "Тепер ви бачите бота так, як його бачать ваші клієнти.\n\n"
+        "⚠️ Записи, які ви тут створите, — справжні: вони з'являться "
+        "у вашому /admin, і вам прийде сповіщення як власнику.\n\n"
+        "Повернутися — кнопка «🔙 Режим власника»."
+    )
+
+    await send_client_welcome(update, context, business)
+
+
+async def switch_to_owner_mode(update, context):
+    context.user_data.pop("client_business_id", None)
+    clear_booking_flow_state(context)
+
+    business = get_business_by_owner(update.effective_user.id)
+
+    if not business:
+        await update.message.reply_text(
+            "У вас ще немає власного бізнесу. "
+            "Створіть його через /setup.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    await update.message.reply_text(
+        f"🔙 Ви знову в режимі власника «{business['name']}».",
+        reply_markup=OWNER_MENU_KEYBOARD
     )
 
 # =========================
@@ -2166,7 +2238,7 @@ async def handle_contact(
     if not pending:
         await update.message.reply_text(
             "Дякую! Але зараз немає незавершеного запису.",
-            reply_markup=CLIENT_MENU_KEYBOARD
+            reply_markup=client_menu_keyboard_for(update.effective_user.id)
         )
         return
 
@@ -2181,7 +2253,7 @@ async def handle_contact(
     if not business:
         await update.message.reply_text(
             "⚠️ Не вдалося знайти бізнес. Почніть запис заново.",
-            reply_markup=CLIENT_MENU_KEYBOARD
+            reply_markup=client_menu_keyboard_for(update.effective_user.id)
         )
         context.user_data.pop("pending_phone_booking", None)
         return
@@ -2190,7 +2262,7 @@ async def handle_contact(
     if is_slot_taken(business_id, pending["date"], pending["time"]):
         await update.message.reply_text(
             "😔 Цей час щойно зайняли. Спробуйте ще раз.",
-            reply_markup=CLIENT_MENU_KEYBOARD
+            reply_markup=client_menu_keyboard_for(update.effective_user.id)
         )
         context.user_data.pop("pending_phone_booking", None)
         return
