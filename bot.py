@@ -1,4 +1,5 @@
 import os
+from html import escape as html_escape
 from datetime import datetime, timedelta
 
 from setup import get_setup_handler
@@ -259,6 +260,28 @@ async def show_my_business(
     )
 
 
+def _capitalize_first(text):
+    text = (text or "").strip()
+    return text[:1].upper() + text[1:]
+
+
+def format_faq_item_html(question, answer):
+    # Лише для показу клієнту: самі записи в базі не змінюємо.
+    # Питання — з великої літери й зі знаком питання в кінці (якщо
+    # власник його не поставив), жирним; відповідь — з великої літери.
+    question = _capitalize_first(question)
+
+    if question and question[-1] not in "?!.":
+        question += "?"
+
+    answer = _capitalize_first(answer)
+
+    return (
+        f"❔ <b>{html_escape(question)}</b>\n"
+        f"💬 {html_escape(answer)}"
+    )
+
+
 async def build_client_help_text(business, context):
     contact_mode = business["support_contact_mode"] if business else None
     contact_value = business["support_contact_value"] if business else None
@@ -266,7 +289,7 @@ async def build_client_help_text(business, context):
     contact_line = None
 
     if contact_mode == "manual" and contact_value:
-        contact_line = f"☎️ {contact_value}"
+        contact_line = f"☎️ {html_escape(contact_value)}"
 
     elif business:
         try:
@@ -277,7 +300,7 @@ async def build_client_help_text(business, context):
             if owner_chat.username:
                 contact_line = (
                     "👤 Написати власнику: "
-                    f"https://t.me/{owner_chat.username}"
+                    f"https://t.me/{html_escape(owner_chat.username)}"
                 )
             else:
                 contact_line = (
@@ -292,7 +315,7 @@ async def build_client_help_text(business, context):
         phone = business["phone"] if business else None
 
         contact_line = (
-            f"☎️ {phone}"
+            f"☎️ {html_escape(phone)}"
             if phone
             else "☎️ Телефон ще не вказано, зверніться через AI-чат"
         )
@@ -300,13 +323,13 @@ async def build_client_help_text(business, context):
     maps_link = get_business_maps_link(business) if business else None
 
     location_line = (
-        f"📍 {maps_link}\n\n"
+        f"📍 {html_escape(maps_link)}\n\n"
         if maps_link
         else ""
     )
 
     bot_usage_text = (
-        "📋 Як користуватись ботом:\n"
+        "<b>📋 Як користуватись ботом:</b>\n"
         "• Записатися — кнопка «✂️ Записатися» або напишіть, "
         "наприклад «хочу стрижку завтра о 17:00»\n"
         "• Скасувати запис — напишіть «скасуй мій запис»\n"
@@ -317,15 +340,15 @@ async def build_client_help_text(business, context):
 
     if faq_items:
         faq_section = "\n\n".join(
-            f"❓ {item['question']}\n{item['answer']}"
+            format_faq_item_html(item["question"], item["answer"])
             for item in faq_items
         )
-        faq_block = f"\n\n❓ FAQ:\n\n{faq_section}"
+        faq_block = f"\n\n<b>📖 Часті запитання</b>\n\n{faq_section}"
     else:
         faq_block = ""
 
     return (
-        "🆘 Допомога\n\n"
+        "<b>🆘 Допомога</b>\n\n"
         f"{contact_line}\n\n"
         f"{location_line}"
         f"{bot_usage_text}"
@@ -363,7 +386,7 @@ async def help_button(
 
     text = await build_client_help_text(business, context)
 
-    await update.message.reply_text(text)
+    await update.message.reply_text(text, parse_mode="HTML")
 
 
 async def reply_keyboard_router(
@@ -2220,7 +2243,8 @@ async def debug_client_help(
     text = await build_client_help_text(business, context)
 
     await update.message.reply_text(
-        f"🐞 DEBUG (business_id={business_id}):\n\n{text}"
+        f"🐞 DEBUG (business_id={business_id}):\n\n{text}",
+        parse_mode="HTML"
     )
 
 
