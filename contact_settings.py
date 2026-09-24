@@ -1,4 +1,5 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from conversation_utils import interrupt_handlers
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -120,17 +121,12 @@ async def setcontact_cancel(
 
 
 def get_setcontact_handler():
-    # Lazy import: bot.py imports get_setcontact_handler at module load
-    # time, so importing from bot at module level here would circular-
-    # import. By the time this function actually runs (from main()),
-    # bot.py has finished loading.
-    from bot import REPLY_MENU_BUTTON_TEXTS, reply_keyboard_router
-
-    menu_button_filter = filters.Text(REPLY_MENU_BUTTON_TEXTS)
-
-    async def interrupt_on_menu_button(update, context):
-        await reply_keyboard_router(update, context)
-        return ConversationHandler.END
+    # Кнопки меню й команди посеред діалогу завершують його і
+    # виконуються як зазвичай (див. conversation_utils.py).
+    interrupts = interrupt_handlers(
+        cleanup_keys=(),
+        action_name="Налаштування контакту"
+    )
 
     return ConversationHandler(
         entry_points=[
@@ -143,10 +139,10 @@ def get_setcontact_handler():
         states={
             CONTACT_CHOOSE_MODE: [
                 CallbackQueryHandler(setcontact_choose_mode),
-                MessageHandler(menu_button_filter, interrupt_on_menu_button),
+                *interrupts,
             ],
             CONTACT_MANUAL_VALUE: [
-                MessageHandler(menu_button_filter, interrupt_on_menu_button),
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     setcontact_manual_value
@@ -155,7 +151,7 @@ def get_setcontact_handler():
         },
         fallbacks=[
             CommandHandler("cancel", setcontact_cancel),
-            MessageHandler(menu_button_filter, interrupt_on_menu_button),
+            *interrupts,
         ],
     )
 
@@ -322,14 +318,12 @@ async def setfaq_cancel(
 
 
 def get_setfaq_handler():
-    # Lazy import: see comment in get_setcontact_handler().
-    from bot import REPLY_MENU_BUTTON_TEXTS, reply_keyboard_router
-
-    menu_button_filter = filters.Text(REPLY_MENU_BUTTON_TEXTS)
-
-    async def interrupt_on_menu_button(update, context):
-        await reply_keyboard_router(update, context)
-        return ConversationHandler.END
+    # Кнопки меню й команди посеред діалогу завершують його і
+    # виконуються як зазвичай (див. conversation_utils.py).
+    interrupts = interrupt_handlers(
+        cleanup_keys=("faq_business_id", "faq_pending_question"),
+        action_name="Налаштування FAQ"
+    )
 
     return ConversationHandler(
         entry_points=[
@@ -345,17 +339,17 @@ def get_setfaq_handler():
                     setfaq_menu_callback,
                     pattern="^(faq_add|faq_done|faqdel_)"
                 ),
-                MessageHandler(menu_button_filter, interrupt_on_menu_button),
+                *interrupts,
             ],
             FAQ_ADD_QUESTION: [
-                MessageHandler(menu_button_filter, interrupt_on_menu_button),
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     setfaq_add_question
                 ),
             ],
             FAQ_ADD_ANSWER: [
-                MessageHandler(menu_button_filter, interrupt_on_menu_button),
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     setfaq_add_answer
@@ -364,6 +358,6 @@ def get_setfaq_handler():
         },
         fallbacks=[
             CommandHandler("cancel", setfaq_cancel),
-            MessageHandler(menu_button_filter, interrupt_on_menu_button),
+            *interrupts,
         ],
     )
