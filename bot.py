@@ -2250,28 +2250,36 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
         mark_reminder_sent(booking["id"])
 
 
+DEFAULT_COMMANDS = [
+    BotCommand("start", "Почати / головне меню"),
+    BotCommand("setup", "Створити свій бізнес"),
+    BotCommand("addservice", "Додати послугу"),
+    BotCommand("services", "Мої послуги"),
+    BotCommand("schedule", "Налаштувати графік роботи"),
+    BotCommand("setcontact", "Контакт для клієнтів"),
+    BotCommand("setfaq", "Налаштувати FAQ для клієнтів"),
+    BotCommand("setlocation", "Локація бізнесу"),
+    BotCommand("mylink", "Посилання для клієнтів"),
+    BotCommand("mybookings", "Мої записи"),
+    BotCommand("admin", "Панель власника"),
+]
+
+
 async def post_init(app):
-    await app.bot.set_my_commands([
-        BotCommand("start", "Почати / головне меню"),
-        BotCommand("setup", "Створити свій бізнес"),
-        BotCommand("addservice", "Додати послугу"),
-        BotCommand("services", "Мої послуги"),
-        BotCommand("schedule", "Налаштувати графік роботи"),
-        BotCommand("setcontact", "Контакт для клієнтів"),
-        BotCommand("setfaq", "Налаштувати FAQ для клієнтів"),
-        BotCommand("setlocation", "Локація бізнесу"),
-        BotCommand("mylink", "Посилання для клієнтів"),
-        BotCommand("mybookings", "Мої записи"),
-        BotCommand("admin", "Панель власника"),
-    ])
+    await app.bot.set_my_commands(DEFAULT_COMMANDS)
 
     # /platform бачить лише власник платформи (OWNER_TELEGRAM_ID у .env) —
     # додаємо команду тільки в його особистий чат, а не в загальне меню,
     # яке бачать усі користувачі бота.
+    # Важливо: меню для конкретного чату ПОВНІСТЮ замінює загальне
+    # (Telegram їх не об'єднує), тому передаємо всі звичайні команди
+    # плюс /platform, інакше у власника в меню лишиться тільки /platform.
     if OWNER_TELEGRAM_ID:
         try:
             await app.bot.set_my_commands(
-                [BotCommand("platform", "Усі бізнеси платформи")],
+                DEFAULT_COMMANDS + [
+                    BotCommand("platform", "Усі бізнеси платформи")
+                ],
                 scope=BotCommandScopeChat(chat_id=int(OWNER_TELEGRAM_ID))
             )
         except Exception as error:
