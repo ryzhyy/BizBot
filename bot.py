@@ -29,6 +29,8 @@ from contact_settings import (
 from location_settings import get_setlocation_handler
 from platform_admin import get_platform_handlers, OWNER_TELEGRAM_ID
 from client_faq import build_faq_view, get_client_faq_handler
+from error_reporting import error_handler, report_error
+from owner_events import on_start, on_booking_created
 from bookings import (
     get_customer,
     get_or_create_customer,
@@ -61,6 +63,7 @@ from telegram import (
     Update,
 )
 from telegram.helpers import escape_markdown
+from telegram.error import Forbidden
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -500,6 +503,15 @@ async def notify_owner_of_booking(
         )
     except Exception as error:
         print("OWNER NOTIFY ERROR:", error)
+        # Власник може не дізнатися про запис — це варто знати одразу.
+        await report_error(
+            context.bot,
+            error,
+            where=(
+                "Власнику не доставлено сповіщення про новий запис "
+                f"(бізнес «{business['name']}», id {business['id']})"
+            )
+        )
 
 
 REQUEST_PHONE_KEYBOARD = ReplyKeyboardMarkup(
@@ -551,6 +563,10 @@ async def finalize_booking(
         service_id,
         date,
         time
+    )
+
+    await on_booking_created(
+        context.bot, business, user.full_name, service_name, date, time
     )
 
     customer = get_customer(business["id"], user.id)
@@ -736,8 +752,12 @@ async def start(
         # підключений цей клієнт
         context.user_data["client_business_id"] = business["id"]
 
+        await on_start(context.bot, update.effective_user, business)
+
         await send_client_welcome(update, context, business)
         return
+
+    await on_start(context.bot, update.effective_user)
 
     # Звичайний /start без business ID —
     # прибираємо попередній client-контекст, якщо він був
@@ -2191,6 +2211,14 @@ async def ai_message(
     except Exception as error:
         print("AI ERROR:", error)
 
+        await report_error(
+            context.bot,
+            error,
+            update=update,
+            user_data=context.user_data,
+            where="AI-чат (ai_message) — клієнт отримав «Зараз не можу відповісти»"
+        )
+
         await update.message.reply_text(
             "⚠️ Зараз не можу відповісти. "
             "Спробуйте ще раз."
@@ -2362,6 +2390,17 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
         except Exception as error:
             print("REMINDER SEND ERROR:", error)
 
+            # Клієнт заблокував бота — нормальна ситуація, не шумимо.
+            if not isinstance(error, Forbidden):
+                await report_error(
+                    context.bot,
+                    error,
+                    where=(
+                        f"Нагадування про запис #{booking['id']} "
+                        f"(«{booking['business_name']}») не надіслано"
+                    )
+                )
+
         mark_reminder_sent(booking["id"])
 
 
@@ -2509,6 +2548,9 @@ def main():
             ai_message
          )
     )
+
+    # Усі неперехоплені помилки — власнику платформи в Telegram.
+    app.add_error_handler(error_handler)
 
     app.job_queue.run_repeating(
         send_reminders,

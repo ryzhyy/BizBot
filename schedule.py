@@ -20,6 +20,7 @@ from database import (
     DAY_NAMES,
 )
 from business_context import get_business_by_owner, get_business_services
+from owner_events import business_has_schedule, on_first_schedule
 
 CHOOSE_SCOPE, CHOOSE_SERVICE, WAITING_SCHEDULE = range(1, 4)
 
@@ -192,6 +193,9 @@ async def save_schedule(
     saved = 0
     errors = []
 
+    # Щоб повідомити власника платформи лише про ПЕРШИЙ графік бізнесу.
+    had_schedule = business_has_schedule(business_id)
+
     try:
         for line in lines:
             parts = line.strip().split(maxsplit=1)
@@ -284,6 +288,11 @@ async def save_schedule(
 
     if saved == 0:
         return WAITING_SCHEDULE
+
+    if not had_schedule:
+        await on_first_schedule(
+            context.bot, update.effective_user, business_id
+        )
 
     rows = get_working_hours(business_id, service_id)
 

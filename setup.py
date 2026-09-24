@@ -8,6 +8,7 @@ from telegram.ext import (
 )
 
 from database import get_connection, generate_unique_slug
+from owner_events import on_setup_started, on_business_created
 
 
 NAME, CATEGORY, CITY = range(3)
@@ -44,6 +45,8 @@ async def setup_start(
         "🚀 Створимо ваш BizBot.\n\n"
         "Як називається ваш бізнес?"
     )
+
+    await on_setup_started(context, update.effective_user)
 
     return NAME
 
@@ -117,6 +120,10 @@ async def setup_city(
 
     context.user_data.pop("setup_name", None)
     context.user_data.pop("setup_category", None)
+
+    await on_business_created(
+        context, update.effective_user, name, category, city
+    )
 
     await update.message.reply_text(
         "✅ Бізнес створено!\n\n"
