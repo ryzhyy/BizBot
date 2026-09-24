@@ -5,6 +5,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+from conversation_utils import interrupt_handlers
 from telegram.ext import (
     CommandHandler,
     ConversationHandler,
@@ -331,6 +332,15 @@ async def schedule_cancel(
 
 
 def get_schedule_handler():
+    interrupts = interrupt_handlers(
+        cleanup_keys=(
+            "schedule_business_id",
+            "schedule_service_id",
+            "schedule_service_name",
+        ),
+        action_name="Налаштування графіка"
+    )
+
     return ConversationHandler(
         entry_points=[
             CommandHandler(
@@ -352,6 +362,7 @@ def get_schedule_handler():
                 )
             ],
             WAITING_SCHEDULE: [
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     save_schedule
@@ -360,5 +371,6 @@ def get_schedule_handler():
         },
         fallbacks=[
             CommandHandler("cancel", schedule_cancel),
+            *interrupts,
         ],
     )

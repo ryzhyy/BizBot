@@ -1,4 +1,5 @@
 from telegram import Update
+from conversation_utils import interrupt_handlers
 from telegram.ext import (
     CommandHandler,
     ContextTypes,
@@ -152,6 +153,10 @@ async def setup_cancel(
 
 
 def get_setup_handler():
+    interrupts = interrupt_handlers(
+        cleanup_keys=("setup_name", "setup_category"),
+        action_name="Створення бізнесу"
+    )
 
     return ConversationHandler(
         entry_points=[
@@ -160,6 +165,7 @@ def get_setup_handler():
 
         states={
             NAME: [
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     setup_name
@@ -167,6 +173,7 @@ def get_setup_handler():
             ],
 
             CATEGORY: [
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     setup_category
@@ -174,6 +181,7 @@ def get_setup_handler():
             ],
 
             CITY: [
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     setup_city
@@ -185,6 +193,7 @@ def get_setup_handler():
             CommandHandler(
                 "cancel",
                 setup_cancel
-            )
+            ),
+            *interrupts,
         ],
     )

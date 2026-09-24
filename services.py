@@ -1,4 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from conversation_utils import interrupt_handlers
 from telegram.ext import (
     CommandHandler,
     ContextTypes,
@@ -278,6 +279,11 @@ async def addservice_cancel(
 
 
 def get_addservice_handler():
+    interrupts = interrupt_handlers(
+        cleanup_keys=("service_business_id", "service_name", "service_price"),
+        action_name="Додавання послуги"
+    )
+
     return ConversationHandler(
         entry_points=[
             CommandHandler(
@@ -291,18 +297,21 @@ def get_addservice_handler():
         ],
         states={
             SERVICE_NAME: [
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     service_name
                 )
             ],
             SERVICE_PRICE: [
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     service_price
                 )
             ],
             SERVICE_DURATION: [
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     service_duration
@@ -313,7 +322,8 @@ def get_addservice_handler():
             CommandHandler(
                 "cancel",
                 addservice_cancel
-            )
+            ),
+            *interrupts,
         ],
     )
 

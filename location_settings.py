@@ -5,6 +5,7 @@ from telegram import (
     ReplyKeyboardMarkup,
     Update,
 )
+from conversation_utils import interrupt_handlers
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -103,7 +104,8 @@ async def setlocation_save_geo(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    # Lazy import: see comment in get_setlocation_handler().
+    # Lazy import: bot.py imports this module at load time, so a
+    # top-level "from bot import ..." would be a circular import.
     from bot import OWNER_MENU_KEYBOARD
 
     business = get_business_by_owner(update.effective_user.id)
@@ -146,7 +148,8 @@ async def setlocation_save_address(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    # Lazy import: see comment in get_setlocation_handler().
+    # Lazy import: bot.py imports this module at load time, so a
+    # top-level "from bot import ..." would be a circular import.
     from bot import OWNER_MENU_KEYBOARD
 
     business = get_business_by_owner(update.effective_user.id)
@@ -179,7 +182,8 @@ async def setlocation_cancel(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    # Lazy import: see comment in get_setlocation_handler().
+    # Lazy import: bot.py imports this module at load time, so a
+    # top-level "from bot import ..." would be a circular import.
     from bot import OWNER_MENU_KEYBOARD
 
     await update.message.reply_text(
@@ -190,17 +194,12 @@ async def setlocation_cancel(
 
 
 def get_setlocation_handler():
-    # Lazy import: bot.py imports get_setlocation_handler at module load
-    # time, so importing from bot at module level here would circular-
-    # import. By the time this function actually runs (from main()),
-    # bot.py has finished loading.
-    from bot import REPLY_MENU_BUTTON_TEXTS, reply_keyboard_router
-
-    menu_button_filter = filters.Text(REPLY_MENU_BUTTON_TEXTS)
-
-    async def interrupt_on_menu_button(update, context):
-        await reply_keyboard_router(update, context)
-        return ConversationHandler.END
+    # Кнопки меню й команди посеред діалогу завершують його і
+    # виконуються як зазвичай (див. conversation_utils.py).
+    interrupts = interrupt_handlers(
+        cleanup_keys=(),
+        action_name="Налаштування локації"
+    )
 
     return ConversationHandler(
         entry_points=[
@@ -213,10 +212,10 @@ def get_setlocation_handler():
         states={
             LOCATION_CHOOSE_MODE: [
                 CallbackQueryHandler(setlocation_choose_mode),
-                MessageHandler(menu_button_filter, interrupt_on_menu_button),
+                *interrupts,
             ],
             LOCATION_WAITING_GEO: [
-                MessageHandler(menu_button_filter, interrupt_on_menu_button),
+                *interrupts,
                 MessageHandler(filters.LOCATION, setlocation_save_geo),
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
@@ -224,7 +223,7 @@ def get_setlocation_handler():
                 ),
             ],
             LOCATION_WAITING_ADDRESS: [
-                MessageHandler(menu_button_filter, interrupt_on_menu_button),
+                *interrupts,
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     setlocation_save_address
@@ -233,6 +232,6 @@ def get_setlocation_handler():
         },
         fallbacks=[
             CommandHandler("cancel", setlocation_cancel),
-            MessageHandler(menu_button_filter, interrupt_on_menu_button),
+            *interrupts,
         ],
     )
