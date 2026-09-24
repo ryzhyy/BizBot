@@ -51,6 +51,7 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from telegram import (
     BotCommand,
+    LinkPreviewOptions,
     BotCommandScopeChat,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -323,14 +324,17 @@ async def build_client_help_text(business, context):
             )
 
             if owner_chat.username:
+                # @username у Telegram і так клікабельний — без довгого
+                # https://t.me/... посилання.
                 contact_line = (
                     "👤 Написати власнику: "
-                    f"https://t.me/{html_escape(owner_chat.username)}"
+                    f"@{html_escape(owner_chat.username)}"
                 )
             else:
                 contact_line = (
-                    "👤 Написати власнику напряму: "
-                    f"tg://user?id={business['owner_telegram_id']}"
+                    "👤 Написати власнику: "
+                    f'<a href="tg://user?id={int(business["owner_telegram_id"])}">'
+                    "відкрити чат</a>"
                 )
 
         except Exception as error:
@@ -412,7 +416,13 @@ async def help_button(
 
     text = await build_client_help_text(business, context)
 
-    await update.message.reply_text(text, parse_mode="HTML")
+    # Без картки-прев'ю під повідомленням (Telegram інакше сам
+    # підтягує профіль власника з першого посилання).
+    await update.message.reply_text(
+        text,
+        parse_mode="HTML",
+        link_preview_options=LinkPreviewOptions(is_disabled=True)
+    )
 
 
 async def reply_keyboard_router(
@@ -2324,7 +2334,8 @@ async def debug_client_help(
 
     await update.message.reply_text(
         f"🐞 DEBUG (business_id={business_id}):\n\n{text}",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        link_preview_options=LinkPreviewOptions(is_disabled=True)
     )
 
 
