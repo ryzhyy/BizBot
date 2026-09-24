@@ -321,6 +321,37 @@ def init_database():
                 (row["id"], "Інформація", row["faq_text"])
             )
 
+    # -------------------------
+    # BOT USERS — хто вже колись запускав бота. Потрібно, щоб
+    # сповіщати власника платформи лише про ПЕРШИЙ /start людини.
+    # -------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bot_users (
+            telegram_id INTEGER PRIMARY KEY,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            first_business_id INTEGER DEFAULT NULL
+        )
+    """)
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bot_users_first_business "
+        "ON bot_users(first_business_id)"
+    )
+
+    # Уже відомих людей (власників і клієнтів, що існували до появи
+    # таблиці) вважаємо "не новими", щоб після деплою не прийшла
+    # хвиля сповіщень про старих користувачів.
+    cursor.execute("""
+        INSERT OR IGNORE INTO bot_users (telegram_id)
+        SELECT owner_telegram_id FROM businesses
+    """)
+    cursor.execute("""
+        INSERT OR IGNORE INTO bot_users (telegram_id, first_business_id)
+        SELECT telegram_id, MIN(business_id) FROM customers
+        GROUP BY telegram_id
+    """)
+
     conn.commit()
     conn.close()
 def set_business_schedule(

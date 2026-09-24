@@ -8,6 +8,7 @@ from telegram.ext import (
 )
 
 from database import get_connection
+from owner_events import on_service_added
 
 
 SERVICE_NAME, SERVICE_PRICE, SERVICE_DURATION = range(3)
@@ -149,6 +150,10 @@ async def service_duration(
 
     conn.commit()
     conn.close()
+
+    await on_service_added(
+        context.bot, update.effective_user, business_id, name, price
+    )
 
     for key in (
         "service_business_id",

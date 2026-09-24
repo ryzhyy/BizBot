@@ -30,6 +30,7 @@ from location_settings import get_setlocation_handler
 from platform_admin import get_platform_handlers, OWNER_TELEGRAM_ID
 from client_faq import build_faq_view, get_client_faq_handler
 from error_reporting import error_handler, report_error
+from owner_events import on_start, on_booking_created
 from bookings import (
     get_customer,
     get_or_create_customer,
@@ -564,6 +565,10 @@ async def finalize_booking(
         time
     )
 
+    await on_booking_created(
+        context.bot, business, user.full_name, service_name, date, time
+    )
+
     customer = get_customer(business["id"], user.id)
     customer_phone = customer["phone"] if customer else None
 
@@ -747,8 +752,12 @@ async def start(
         # підключений цей клієнт
         context.user_data["client_business_id"] = business["id"]
 
+        await on_start(context.bot, update.effective_user, business)
+
         await send_client_welcome(update, context, business)
         return
+
+    await on_start(context.bot, update.effective_user)
 
     # Звичайний /start без business ID —
     # прибираємо попередній client-контекст, якщо він був
