@@ -26,6 +26,7 @@ from contact_settings import (
     get_setfaq_handler,
 )
 from location_settings import get_setlocation_handler
+from platform_admin import get_platform_handlers, OWNER_TELEGRAM_ID
 from bookings import (
     get_customer,
     get_or_create_customer,
@@ -48,6 +49,7 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from telegram import (
     BotCommand,
+    BotCommandScopeChat,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -2263,6 +2265,18 @@ async def post_init(app):
         BotCommand("admin", "Панель власника"),
     ])
 
+    # /platform бачить лише власник платформи (OWNER_TELEGRAM_ID у .env) —
+    # додаємо команду тільки в його особистий чат, а не в загальне меню,
+    # яке бачать усі користувачі бота.
+    if OWNER_TELEGRAM_ID:
+        try:
+            await app.bot.set_my_commands(
+                [BotCommand("platform", "Усі бізнеси платформи")],
+                scope=BotCommandScopeChat(chat_id=int(OWNER_TELEGRAM_ID))
+            )
+        except Exception as error:
+            print("PLATFORM COMMAND SCOPE ERROR:", error)
+
 
 def main():
     app = (
@@ -2326,6 +2340,9 @@ def main():
             admin
         )
     )
+
+    for handler in get_platform_handlers():
+        app.add_handler(handler)
 
     # TEMP DEBUG — прибрати перед фінальним поданням заявки.
     app.add_handler(

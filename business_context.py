@@ -8,6 +8,26 @@ from database import (
 )
 
 
+def get_all_businesses():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id, name, category, city, phone, owner_telegram_id,
+               support_contact_mode, support_contact_value, faq_text,
+               latitude, longitude, address_text, slug
+        FROM businesses
+        ORDER BY id
+        """
+    )
+
+    businesses = cursor.fetchall()
+    conn.close()
+
+    return businesses
+
+
 def get_business_by_owner(owner_telegram_id):
     conn = get_connection()
     cursor = conn.cursor()
