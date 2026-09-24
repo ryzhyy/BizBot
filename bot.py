@@ -28,6 +28,7 @@ from contact_settings import (
 )
 from location_settings import get_setlocation_handler
 from platform_admin import get_platform_handlers, OWNER_TELEGRAM_ID
+from client_faq import build_faq_view, get_client_faq_handler
 from bookings import (
     get_customer,
     get_or_create_customer,
@@ -124,7 +125,8 @@ OWNER_MENU_KEYBOARD = ReplyKeyboardMarkup(
 CLIENT_MENU_KEYBOARD = ReplyKeyboardMarkup(
     [
         ["✂️ Записатися", "🧾 Послуги та ціни"],
-        ["📅 Мої записи", "❓ Допомога"],
+        ["📅 Мої записи", "📖 Часті запитання"],
+        ["❓ Допомога"],
     ],
     resize_keyboard=True
 )
@@ -135,6 +137,7 @@ REPLY_MENU_BUTTON_TEXTS = [
     "✂️ Записатися",
     "🧾 Послуги та ціни",
     "📅 Мої записи",
+    "📖 Часті запитання",
     "❓ Допомога",
 ]
 
@@ -260,25 +263,27 @@ async def show_my_business(
     )
 
 
-def _capitalize_first(text):
-    text = (text or "").strip()
-    return text[:1].upper() + text[1:]
+async def faq_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    business = resolve_current_business(
+        context, update.effective_user.id
+    )
 
+    if not business:
+        await update.message.reply_text(
+            "⚠️ Не вдалося визначити бізнес. "
+            "Відкрийте персональне посилання бізнесу."
+        )
+        return
 
-def format_faq_item_html(question, answer):
-    # Лише для показу клієнту: самі записи в базі не змінюємо.
-    # Питання — з великої літери й зі знаком питання в кінці (якщо
-    # власник його не поставив), жирним; відповідь — з великої літери.
-    question = _capitalize_first(question)
+    text, keyboard = build_faq_view(business)
 
-    if question and question[-1] not in "?!.":
-        question += "?"
-
-    answer = _capitalize_first(answer)
-
-    return (
-        f"❔ <b>{html_escape(question)}</b>\n"
-        f"💬 {html_escape(answer)}"
+    await update.message.reply_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
     )
 
 
@@ -338,12 +343,13 @@ async def build_client_help_text(business, context):
 
     faq_items = get_faq_items(business["id"]) if business else []
 
+    # Самі питання-відповіді тепер живуть в окремому інтерактивному
+    # FAQ (кнопка «📖 Часті запитання» / /faq), тут — лише підказка.
     if faq_items:
-        faq_section = "\n\n".join(
-            format_faq_item_html(item["question"], item["answer"])
-            for item in faq_items
+        faq_block = (
+            "\n\n📖 Відповіді на часті запитання — кнопка "
+            "«📖 Часті запитання» або /faq"
         )
-        faq_block = f"\n\n<b>📖 Часті запитання</b>\n\n{faq_section}"
     else:
         faq_block = ""
 
@@ -405,6 +411,8 @@ async def reply_keyboard_router(
         await show_business_services(update, context)
     elif text == "📅 Мої записи":
         await my_bookings_command(update, context)
+    elif text == "📖 Часті запитання":
+        await faq_command(update, context)
     elif text == "❓ Допомога":
         await help_button(update, context)
 
@@ -2285,6 +2293,7 @@ DEFAULT_COMMANDS = [
     BotCommand("setlocation", "Локація бізнесу"),
     BotCommand("mylink", "Посилання для клієнтів"),
     BotCommand("mybookings", "Мої записи"),
+    BotCommand("faq", "Часті запитання"),
     BotCommand("admin", "Панель власника"),
 ]
 
@@ -2375,6 +2384,16 @@ def main():
 
     for handler in get_platform_handlers():
         app.add_handler(handler)
+
+    app.add_handler(
+        CommandHandler(
+            "faq",
+            faq_command
+        )
+    )
+
+    # Має стояти ДО загального button_handler, який ловить усі callback-и.
+    app.add_handler(get_client_faq_handler())
 
     # TEMP DEBUG — прибрати перед фінальним поданням заявки.
     app.add_handler(
