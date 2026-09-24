@@ -26,6 +26,11 @@ OWNER_TELEGRAM_ID = os.getenv("OWNER_TELEGRAM_ID")
 
 MAX_BOOKINGS_SHOWN = 10
 
+CLOSE_BUTTON = InlineKeyboardButton(
+    "❌ Закрити",
+    callback_data="platform_close"
+)
+
 
 def is_platform_owner(telegram_id):
     if not OWNER_TELEGRAM_ID:
@@ -75,6 +80,8 @@ def _business_list_message():
         for business in businesses
     ]
 
+    keyboard.append([CLOSE_BUTTON])
+
     text = (
         f"👑 Панель власника платформи\n\n"
         f"Усього бізнесів: {len(businesses)}\n\n"
@@ -88,7 +95,13 @@ def _business_detail_message(business_id):
     business = get_business_by_id(business_id)
 
     if not business:
-        return "⚠️ Бізнес не знайдено.", None
+        return "⚠️ Бізнес не знайдено.", InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                "⬅️ До списку бізнесів",
+                callback_data="platform_back"
+            )],
+            [CLOSE_BUTTON],
+        ])
 
     services = get_business_services(business_id)
 
@@ -137,12 +150,13 @@ def _business_detail_message(business_id):
         f"📅 Майбутні записи ({len(bookings)}):\n{bookings_text}"
     )
 
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
             "⬅️ До списку бізнесів",
             callback_data="platform_back"
-        )
-    ]])
+        )],
+        [CLOSE_BUTTON],
+    ])
 
     return text, keyboard
 
@@ -156,6 +170,22 @@ async def platform_start(update, context):
     await update.message.reply_text(text, reply_markup=keyboard)
 
 
+async def _show_in_place(query, text, keyboard):
+    # Вся навігація панелі відбувається в ОДНОМУ повідомленні: замість
+    # нового повідомлення на кожен клік редагуємо те саме, щоб чат не
+    # забивався старими панелями.
+    try:
+        await query.edit_message_text(text, reply_markup=keyboard)
+    except Exception as error:
+        # Той самий текст/клавіатура — Telegram відмовляє в редагуванні,
+        # це не помилка, нічого не робимо.
+        if "not modified" in str(error).lower():
+            return
+        # Повідомлення застаре/видалене — показуємо як нове.
+        print("PLATFORM EDIT ERROR:", error)
+        await query.message.reply_text(text, reply_markup=keyboard)
+
+
 async def platform_business_detail(update, context):
     query = update.callback_query
     await query.answer()
@@ -167,7 +197,7 @@ async def platform_business_detail(update, context):
     business_id = int(query.data.replace("platform_biz_", ""))
     text, keyboard = _business_detail_message(business_id)
 
-    await query.message.reply_text(text, reply_markup=keyboard)
+    await _show_in_place(query, text, keyboard)
 
 
 async def platform_back_to_list(update, context):
@@ -179,7 +209,26 @@ async def platform_back_to_list(update, context):
         return
 
     text, keyboard = _business_list_message()
-    await query.message.reply_text(text, reply_markup=keyboard)
+    await _show_in_place(query, text, keyboard)
+
+
+async def platform_close(update, context):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_platform_owner(query.from_user.id):
+        return
+
+    try:
+        await query.message.delete()
+    except Exception as error:
+        # Telegram не дає видаляти повідомлення, старші за 48 годин —
+        # тоді просто прибираємо кнопки й позначаємо панель закритою.
+        print("PLATFORM CLOSE ERROR:", error)
+        try:
+            await query.edit_message_text("👑 Панель закрито.")
+        except Exception:
+            pass
 
 
 def get_platform_handlers():
@@ -190,5 +239,8 @@ def get_platform_handlers():
         ),
         CallbackQueryHandler(
             platform_back_to_list, pattern=r"^platform_back$"
+        ),
+        CallbackQueryHandler(
+            platform_close, pattern=r"^platform_close$"
         ),
     ]
