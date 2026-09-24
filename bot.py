@@ -130,11 +130,11 @@ def resolve_current_business(context, telegram_id):
 
 OWNER_MENU_KEYBOARD = ReplyKeyboardMarkup(
     [
-        ["📝 Мій бізнес", "➕ Додати послугу"],
-        ["📋 Мої послуги", "❓ Допомога"],
+        ["📅 Записи клієнтів", "📝 Мій бізнес"],
+        ["➕ Додати послугу", "📋 Мої послуги"],
         ["⚙️ Контакт для клієнтів", "❓ Налаштувати FAQ"],
         ["📍 Локація бізнесу", "👀 Режим клієнта"],
-        ["💎 Мій тариф"],
+        ["💎 Мій тариф", "❓ Допомога"],
     ],
     resize_keyboard=True
 )
@@ -177,6 +177,7 @@ REPLY_MENU_BUTTON_TEXTS = [
     "👀 Режим клієнта",
     "🔙 Режим власника",
     "💎 Мій тариф",
+    "📅 Записи клієнтів",
 ]
 
 
@@ -476,6 +477,8 @@ async def reply_keyboard_router(
         await switch_to_owner_mode(update, context)
     elif text == "💎 Мій тариф":
         await plan_command(update, context)
+    elif text == "📅 Записи клієнтів":
+        await admin(update, context)
 
 
 
