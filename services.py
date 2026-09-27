@@ -1,6 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from conversation_utils import interrupt_handlers
 from telegram.ext import (
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     ConversationHandler,
@@ -16,9 +17,28 @@ from plans import (
     pro_required_text,
 )
 from owner_events import on_service_added
+from masters import (
+    MASTER_QUESTION_TEXT,
+    NEW_MASTER_PROMPT_TEXT,
+    NO_MASTER_LABEL,
+    clean_master_name,
+    get_master,
+    get_or_create_master,
+    master_picker_keyboard,
+)
 
 
-SERVICE_NAME, SERVICE_PRICE, SERVICE_DURATION = range(3)
+(
+    SERVICE_NAME, SERVICE_PRICE, SERVICE_DURATION,
+    SERVICE_MASTER, SERVICE_MASTER_NAME,
+) = range(5)
+
+SERVICE_FLOW_KEYS = (
+    "service_business_id",
+    "service_name",
+    "service_price",
+    "service_duration",
+)
 
 
 def get_owner_business(owner_id):
@@ -140,9 +160,73 @@ async def service_duration(
         )
         return SERVICE_DURATION
 
+    context.user_data["service_duration"] = duration
+
+    await update.message.reply_text(
+        MASTER_QUESTION_TEXT,
+        reply_markup=master_picker_keyboard(
+            context.user_data["service_business_id"], "addsvc_master_"
+        )
+    )
+
+    return SERVICE_MASTER
+
+
+async def service_master_pick(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    query = update.callback_query
+    await query.answer()
+
+    choice = query.data.removeprefix("addsvc_master_")
+
+    if choice == "new":
+        await query.message.reply_text(NEW_MASTER_PROMPT_TEXT)
+        return SERVICE_MASTER_NAME
+
+    master_id = None
+
+    if choice != "none":
+        master = get_master(
+            context.user_data["service_business_id"], int(choice)
+        )
+        if master is None:
+            await query.message.reply_text(
+                "⚠️ Майстра не знайдено. Оберіть ще раз."
+            )
+            return SERVICE_MASTER
+        master_id = master["id"]
+
+    return await save_service(
+        query.message, update.effective_user, context, master_id
+    )
+
+
+async def service_master_name(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    name = clean_master_name(update.message.text)
+
+    if name is None:
+        await update.message.reply_text(NEW_MASTER_PROMPT_TEXT)
+        return SERVICE_MASTER_NAME
+
+    master = get_or_create_master(
+        context.user_data["service_business_id"], name
+    )
+
+    return await save_service(
+        update.message, update.effective_user, context, master["id"]
+    )
+
+
+async def save_service(message, user, context, master_id):
     business_id = context.user_data["service_business_id"]
     name = context.user_data["service_name"]
     price = context.user_data["service_price"]
+    duration = context.user_data["service_duration"]
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -150,32 +234,30 @@ async def service_duration(
     cursor.execute(
         """
         INSERT INTO services
-        (business_id, name, price, duration)
-        VALUES (?, ?, ?, ?)
+        (business_id, name, price, duration, master_id)
+        VALUES (?, ?, ?, ?, ?)
         """,
         (
             business_id,
             name,
             price,
-            duration
+            duration,
+            master_id
         )
     )
-
-    service_id = cursor.lastrowid
 
     conn.commit()
     conn.close()
 
     await on_service_added(
-        context.bot, update.effective_user, business_id, name, price
+        context.bot, user, business_id, name, price
     )
 
-    for key in (
-        "service_business_id",
-        "service_name",
-        "service_price"
-    ):
+    for key in SERVICE_FLOW_KEYS:
         context.user_data.pop(key, None)
+
+    master = get_master(business_id, master_id) if master_id else None
+
     keyboard = [
         [
             InlineKeyboardButton(
@@ -191,11 +273,12 @@ async def service_duration(
         ]
     ]
 
-    await update.message.reply_text(
+    await message.reply_text(
         "✅ Послугу додано!\n\n"
         f"✂️ {name}\n"
         f"💰 {price} грн\n"
-        f"⏱ {duration} хв\n\n"
+        f"⏱ {duration} хв\n"
+        f"👤 {master['name'] if master else NO_MASTER_LABEL}\n\n"
         "Що робимо далі? 👇",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -222,11 +305,14 @@ async def services_list(
 
     cursor.execute(
         """
-        SELECT id, name, price, duration
+        SELECT services.id AS id, services.name AS name,
+               services.price AS price, services.duration AS duration,
+               masters.name AS master
         FROM services
-        WHERE business_id = ?
-          AND active = 1
-        ORDER BY id
+        LEFT JOIN masters ON masters.id = services.master_id
+        WHERE services.business_id = ?
+          AND services.active = 1
+        ORDER BY services.id
         """,
         (business["id"],)
     )
@@ -254,21 +340,28 @@ async def services_list(
             f"#{service['id']} — {service['name']}\n"
             f"{hidden_mark}"
             f"💰 {service['price']} грн\n"
-            f"⏱ {service['duration']} хв\n\n"
+            f"⏱ {service['duration']} хв\n"
+            f"👤 {service['master'] or NO_MASTER_LABEL}\n\n"
         )
 
-    await update.message.reply_text(text)
+    keyboard = [
+        [InlineKeyboardButton(
+            f"👤 Майстер для «{service['name']}»",
+            callback_data=f"svcmaster_{service['id']}"
+        )]
+        for service in services
+    ]
+
+    await update.message.reply_text(
+        text, reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 async def addservice_cancel(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    for key in (
-        "service_business_id",
-        "service_name",
-        "service_price"
-    ):
+    for key in SERVICE_FLOW_KEYS:
         context.user_data.pop(key, None)
 
     await update.message.reply_text(
@@ -280,7 +373,7 @@ async def addservice_cancel(
 
 def get_addservice_handler():
     interrupts = interrupt_handlers(
-        cleanup_keys=("service_business_id", "service_name", "service_price"),
+        cleanup_keys=SERVICE_FLOW_KEYS,
         action_name="Додавання послуги"
     )
 
@@ -315,6 +408,20 @@ def get_addservice_handler():
                 MessageHandler(
                     filters.TEXT & ~filters.COMMAND,
                     service_duration
+                )
+            ],
+            SERVICE_MASTER: [
+                *interrupts,
+                CallbackQueryHandler(
+                    service_master_pick,
+                    pattern=r"^addsvc_master_(\d+|new|none)$"
+                ),
+            ],
+            SERVICE_MASTER_NAME: [
+                *interrupts,
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND,
+                    service_master_name
                 )
             ],
         },

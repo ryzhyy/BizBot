@@ -97,7 +97,18 @@ def _service_duration(cursor, service_id):
     return row["duration"] if row else DEFAULT_DURATION_MINUTES
 
 
-def _busy_intervals(cursor, business_id, booking_date, ignore_booking_id=None):
+def _service_master_id(cursor, service_id):
+    row = cursor.execute(
+        "SELECT master_id FROM services WHERE id = ?", (service_id,)
+    ).fetchone()
+    return row["master_id"] if row else None
+
+
+def _busy_intervals(
+    cursor, business_id, booking_date, service_id, ignore_booking_id=None
+):
+    """Зайняті проміжки в черзі того ж майстра, що й у service_id.
+    Послуги без майстра (master_id IS NULL) — одна спільна черга."""
     rows = cursor.execute(
         """
         SELECT bookings.booking_time AS time, services.duration AS duration
@@ -107,8 +118,12 @@ def _busy_intervals(cursor, business_id, booking_date, ignore_booking_id=None):
           AND bookings.booking_date = ?
           AND bookings.status = 'confirmed'
           AND bookings.id IS NOT ?
+          AND services.master_id IS ?
         """,
-        (business_id, booking_date, ignore_booking_id)
+        (
+            business_id, booking_date, ignore_booking_id,
+            _service_master_id(cursor, service_id)
+        )
     ).fetchall()
 
     return [
@@ -165,7 +180,9 @@ def _slot_conflicts(
 
     return _overlaps(
         start, end,
-        _busy_intervals(cursor, business_id, booking_date, ignore_booking_id)
+        _busy_intervals(
+            cursor, business_id, booking_date, service_id, ignore_booking_id
+        )
     )
 
 
@@ -199,7 +216,7 @@ def get_available_times(business_id, date, service_id=None):
     conn = get_connection()
     cursor = conn.cursor()
     duration = _service_duration(cursor, service_id)
-    busy = _busy_intervals(cursor, business_id, date)
+    busy = _busy_intervals(cursor, business_id, date, service_id)
     conn.close()
 
     # На сьогодні не пропонуємо час, який уже минув.
@@ -257,7 +274,10 @@ def booking_time_error(
 
         if _overlaps(
             start, start + duration,
-            _busy_intervals(cursor, business_id, booking_date, ignore_booking_id)
+            _busy_intervals(
+                cursor, business_id, booking_date, service_id,
+                ignore_booking_id
+            )
         ):
             return "😔 Цей час уже зайнятий. Оберіть, будь ласка, інший."
 
@@ -360,10 +380,12 @@ def get_business_bookings(business_id):
                customers.name AS customer_name,
                services.name AS service,
                bookings.booking_date AS date,
-               bookings.booking_time AS time
+               bookings.booking_time AS time,
+               masters.name AS master
         FROM bookings
         JOIN customers ON customers.id = bookings.customer_id
         JOIN services ON services.id = bookings.service_id
+        LEFT JOIN masters ON masters.id = services.master_id
         WHERE bookings.business_id = ?
           AND bookings.status = 'confirmed'
           AND bookings.booking_date >= ?
