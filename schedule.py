@@ -18,20 +18,36 @@ from telegram.ext import (
 
 from database import (
     set_working_hours,
+    get_master_working_hours,
     get_working_hours,
     DAY_NAMES,
 )
 from business_context import get_business_by_owner, get_business_services
+from masters import get_master, get_masters
 from owner_events import business_has_schedule, on_first_schedule
 
 logger = logging.getLogger(__name__)
 
-CHOOSE_SCOPE, CHOOSE_SERVICE, WAITING_SCHEDULE = range(1, 4)
+CHOOSE_SCOPE, CHOOSE_SERVICE, WAITING_SCHEDULE, CHOOSE_MASTER = range(1, 5)
+
+SCHEDULE_KEYS = (
+    "schedule_business_id",
+    "schedule_service_id",
+    "schedule_service_name",
+    "schedule_master_id",
+    "schedule_master_name",
+)
 
 
-def schedule_instructions_text(service_name=None):
+def schedule_instructions_text(service_name=None, master_name=None):
     if service_name:
         intro = f"🗓 Графік для послуги «{service_name}»\n\n"
+    elif master_name:
+        intro = (
+            f"🗓 Графік майстра «{master_name}»\n\n"
+            "Діє для всіх послуг цього майстра, крім тих, що мають "
+            "власний графік.\n\n"
+        )
     else:
         intro = "🗓 Загальний графік бізнесу\n\n"
 
@@ -64,9 +80,9 @@ async def schedule_start(
         )
         return ConversationHandler.END
 
+    for key in SCHEDULE_KEYS:
+        context.user_data.pop(key, None)
     context.user_data["schedule_business_id"] = business["id"]
-    context.user_data["schedule_service_id"] = None
-    context.user_data.pop("schedule_service_name", None)
 
     keyboard = [
         [InlineKeyboardButton(
@@ -78,6 +94,13 @@ async def schedule_start(
             callback_data="schedule_scope_service"
         )],
     ]
+
+    # Лише бізнесам, де вже є майстри: тим, хто працює сам, це зайве.
+    if get_masters(business["id"]):
+        keyboard.append([InlineKeyboardButton(
+            "👤 Графік для майстра",
+            callback_data="schedule_scope_master"
+        )])
 
     await update.message.reply_text(
         "🗓 Налаштування графіка\n\n"
@@ -123,8 +146,34 @@ async def schedule_choose_scope(
 
         return CHOOSE_SERVICE
 
+    if query.data == "schedule_scope_master":
+        masters = get_masters(business_id)
+
+        if not masters:
+            await query.message.reply_text(
+                "😔 У вас ще немає майстрів. Призначте майстра послузі "
+                "в «📋 Мої послуги»."
+            )
+            return ConversationHandler.END
+
+        keyboard = [
+            [InlineKeyboardButton(
+                f"👤 {master['name']}",
+                callback_data=f"schedule_master_{master['id']}"
+            )]
+            for master in masters
+        ]
+
+        await query.message.reply_text(
+            "Для якого майстра налаштовуємо графік?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+        return CHOOSE_MASTER
+
     context.user_data["schedule_service_id"] = None
     context.user_data.pop("schedule_service_name", None)
+    context.user_data.pop("schedule_master_id", None)
 
     await query.message.reply_text(
         schedule_instructions_text()
@@ -171,6 +220,35 @@ async def schedule_choose_service(
     return WAITING_SCHEDULE
 
 
+async def schedule_choose_master(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    query = update.callback_query
+    await query.answer()
+
+    business_id = context.user_data.get("schedule_business_id")
+    master = get_master(
+        business_id, int(query.data.removeprefix("schedule_master_"))
+    ) if business_id else None
+
+    if not master:
+        await query.message.reply_text(
+            "⚠️ Не вдалося знайти майстра. Спробуйте /schedule ще раз."
+        )
+        return ConversationHandler.END
+
+    context.user_data["schedule_service_id"] = None
+    context.user_data["schedule_master_id"] = master["id"]
+    context.user_data["schedule_master_name"] = master["name"]
+
+    await query.message.reply_text(
+        schedule_instructions_text(master_name=master["name"])
+    )
+
+    return WAITING_SCHEDULE
+
+
 async def save_schedule(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -181,6 +259,8 @@ async def save_schedule(
 
     service_id = context.user_data.get("schedule_service_id")
     service_name = context.user_data.get("schedule_service_name")
+    master_id = context.user_data.get("schedule_master_id")
+    master_name = context.user_data.get("schedule_master_name")
 
     lines = update.message.text.strip().splitlines()
 
@@ -222,7 +302,8 @@ async def save_schedule(
                     None,
                     None,
                     0,
-                    service_id
+                    service_id,
+                    master_id
                 )
                 saved += 1
                 continue
@@ -257,7 +338,8 @@ async def save_schedule(
                 start_time,
                 end_time,
                 1,
-                service_id
+                service_id,
+                master_id
             )
 
             saved += 1
@@ -298,10 +380,15 @@ async def save_schedule(
             context.bot, update.effective_user, business_id
         )
 
-    rows = get_working_hours(business_id, service_id)
+    if master_id:
+        rows = get_master_working_hours(business_id, master_id)
+    else:
+        rows = get_working_hours(business_id, service_id)
 
     if service_id:
         header = f"✅ Графік для «{service_name}» збережено!\n"
+    elif master_id:
+        header = f"✅ Графік майстра «{master_name}» збережено!\n"
     else:
         header = "✅ Загальний графік бізнесу збережено!\n"
 
@@ -323,6 +410,9 @@ async def save_schedule(
         "\n".join(result)
     )
 
+    for key in SCHEDULE_KEYS:
+        context.user_data.pop(key, None)
+
     return ConversationHandler.END
 
 
@@ -336,11 +426,7 @@ async def schedule_cancel(
 
 def get_schedule_handler():
     interrupts = interrupt_handlers(
-        cleanup_keys=(
-            "schedule_business_id",
-            "schedule_service_id",
-            "schedule_service_name",
-        ),
+        cleanup_keys=SCHEDULE_KEYS,
         action_name="Налаштування графіка"
     )
 
@@ -362,6 +448,12 @@ def get_schedule_handler():
                 CallbackQueryHandler(
                     schedule_choose_service,
                     pattern="^schedule_svc_"
+                )
+            ],
+            CHOOSE_MASTER: [
+                CallbackQueryHandler(
+                    schedule_choose_master,
+                    pattern=r"^schedule_master_\d+$"
                 )
             ],
             WAITING_SCHEDULE: [

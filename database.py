@@ -77,58 +77,50 @@ def init_database():
     conn.close()
 
 
+def _scope_filter(service_id, master_id):
+    """SQL condition + params selecting one schedule scope: a service, a
+    master, or (neither) the business-wide default."""
+    if service_id is not None:
+        return "service_id = ?", (service_id,)
+    if master_id is not None:
+        return "master_id = ?", (master_id,)
+    return "service_id IS NULL AND master_id IS NULL", ()
+
+
 def set_working_hours(
     business_id,
     weekday,
     start_time,
     end_time,
     is_open=1,
-    service_id=None
+    service_id=None,
+    master_id=None
 ):
+    """Save one weekday of one schedule: a service's (service_id), a
+    master's (master_id) or, with neither, the business default."""
+    scope, scope_params = _scope_filter(service_id, master_id)
+
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Прибираємо старий графік цього дня (для цього ж service_id:
-    # NULL — загальний графік бізнесу, число — графік конкретної послуги)
-    if service_id is None:
-        cursor.execute(
-            """
-            DELETE FROM working_hours
-            WHERE business_id = ? AND weekday = ?
-              AND service_id IS NULL
-            """,
-            (business_id, weekday)
-        )
-    else:
-        cursor.execute(
-            """
-            DELETE FROM working_hours
-            WHERE business_id = ? AND weekday = ?
-              AND service_id = ?
-            """,
-            (business_id, weekday, service_id)
-        )
+    # Прибираємо старий графік цього дня в цьому ж графіку.
+    cursor.execute(
+        f"DELETE FROM working_hours "
+        f"WHERE business_id = ? AND weekday = ? AND {scope}",
+        (business_id, weekday, *scope_params)
+    )
 
-    # Записуємо новий
     cursor.execute(
         """
         INSERT INTO working_hours (
-            business_id,
-            weekday,
-            start_time,
-            end_time,
-            is_open,
-            service_id
+            business_id, weekday, start_time, end_time, is_open,
+            service_id, master_id
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            business_id,
-            weekday,
-            start_time,
-            end_time,
-            is_open,
-            service_id
+            business_id, weekday, start_time, end_time, is_open,
+            service_id, master_id
         )
     )
 
@@ -136,43 +128,55 @@ def set_working_hours(
     conn.close()
 
 
+def _schedule_rows(cursor, business_id, service_id=None, master_id=None):
+    scope, scope_params = _scope_filter(service_id, master_id)
+    return cursor.execute(
+        f"""
+        SELECT weekday, start_time, end_time, is_open
+        FROM working_hours
+        WHERE business_id = ? AND {scope}
+        ORDER BY weekday
+        """,
+        (business_id, *scope_params)
+    ).fetchall()
+
+
 def get_working_hours(business_id, service_id=None):
+    """Effective schedule for a service: its own, else its master's,
+    else the business default. Without service_id: the default."""
     conn = get_connection()
     cursor = conn.cursor()
 
-    if service_id is not None:
-        cursor.execute(
-            """
-            SELECT weekday, start_time, end_time, is_open
-            FROM working_hours
-            WHERE business_id = ? AND service_id = ?
-            ORDER BY weekday
-            """,
-            (business_id, service_id)
-        )
+    try:
+        if service_id is not None:
+            rows = _schedule_rows(cursor, business_id, service_id=service_id)
+            if rows:
+                return rows
 
-        rows = cursor.fetchall()
+            master = cursor.execute(
+                "SELECT master_id FROM services WHERE id = ? AND business_id = ?",
+                (service_id, business_id)
+            ).fetchone()
 
-        if rows:
-            conn.close()
-            return rows
+            if master and master["master_id"] is not None:
+                rows = _schedule_rows(
+                    cursor, business_id, master_id=master["master_id"]
+                )
+                if rows:
+                    return rows
 
-    # Немає власного графіка для цієї послуги (або service_id не
-    # задано) — беремо загальний графік бізнесу.
-    cursor.execute(
-        """
-        SELECT weekday, start_time, end_time, is_open
-        FROM working_hours
-        WHERE business_id = ? AND service_id IS NULL
-        ORDER BY weekday
-        """,
-        (business_id,)
-    )
+        return _schedule_rows(cursor, business_id)
+    finally:
+        conn.close()
 
-    rows = cursor.fetchall()
-    conn.close()
 
-    return rows
+def get_master_working_hours(business_id, master_id):
+    """Графік, заданий САМЕ для цього майстра (без fallback)."""
+    conn = get_connection()
+    try:
+        return _schedule_rows(conn.cursor(), business_id, master_id=master_id)
+    finally:
+        conn.close()
 
 
 def get_own_working_hours(business_id, service_id):
