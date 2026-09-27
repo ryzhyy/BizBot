@@ -18,10 +18,13 @@ Pro зберігається як дата закінчення (businesses.pro_
 Модуль навмисно не імпортує business_context, щоб той міг імпортувати
 plans без циклічного імпорту.
 """
+import logging
 from datetime import datetime, timedelta
 
 from timeutils import now_local
 from database import get_connection
+
+logger = logging.getLogger(__name__)
 
 
 FREE_MAX_SERVICES = 2
@@ -291,7 +294,7 @@ async def _send(bot, chat_id, text):
     try:
         await bot.send_message(chat_id=chat_id, text=text)
     except Exception as error:
-        print("PLAN NOTIFY ERROR:", error)
+        logger.warning("Plan notification failed: %s", error)
 
 
 async def check_pro_expirations(bot):
@@ -310,8 +313,8 @@ async def check_pro_expirations(bot):
             """
         ).fetchall()
         conn.close()
-    except Exception as error:
-        print("PRO EXPIRATION CHECK ERROR:", error)
+    except Exception:
+        logger.exception("Pro expiration check failed")
         return
 
     now = now_local()

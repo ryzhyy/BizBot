@@ -61,3 +61,16 @@ FK, CHECK) на SQLite вимагає пересворення таблиці �
    (опційно `DB_PATH` — шлях до файлу SQLite, за замовчуванням
    `bizbot_v06.db`)
 3. Запустити: `python bot.py`
+4. Тести: `pip install pytest && python -m pytest` (CI запускає їх на
+   кожен PR і пуш у `main`; Railway деплоїть лише після зелених тестів)
+
+### Змінні оточення
+
+| Змінна | За замовчуванням | Призначення |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY` | — | обов'язкові |
+| `OWNER_TELEGRAM_ID` | — | власник платформи: `/platform`, звіти про помилки, щоденний бекап |
+| `DB_PATH` | `bizbot_v06.db` | файл SQLite; на Railway — на volume `/data` |
+| `STATE_PATH` | `bot_state.pickle` поруч із БД | стан розмов клієнтів (до якого бізнесу підключений, незавершений запис), переживає перезапуски |
+| `BOT_TIMEZONE` | `Europe/Kyiv` | часовий пояс записів |
+| `LOG_LEVEL` | `INFO` | `DEBUG` показує розпізнані AI наміри |

@@ -1,3 +1,4 @@
+import logging
 import json
 from timeutils import now_local
 
@@ -5,11 +6,32 @@ from openai import AsyncOpenAI
 
 from plans import get_visible_services
 
+logger = logging.getLogger(__name__)
+
+# The SDK default is a 10-minute timeout; a stuck call would hold that
+# client's (per-user serialized) updates for all that time.
+OPENAI_TIMEOUT_SECONDS = 30
+OPENAI_MAX_RETRIES = 1
+# Enough for any real booking request; caps prompt cost and abuse.
+MAX_USER_TEXT_CHARS = 1000
+
+FALLBACK_RESULT = {
+    "intent": "general",
+    "service": None,
+    "date": None,
+    "time": None,
+    "after_time": None,
+}
+
 
 class AIManager:
 
     def __init__(self, api_key):
-        self.client = AsyncOpenAI(api_key=api_key)
+        self.client = AsyncOpenAI(
+            api_key=api_key,
+            timeout=OPENAI_TIMEOUT_SECONDS,
+            max_retries=OPENAI_MAX_RETRIES,
+        )
 
     async def understand_message(
         self,
@@ -20,6 +42,8 @@ class AIManager:
 
         if conversation_state is None:
             conversation_state = {}
+
+        user_text = (user_text or "")[:MAX_USER_TEXT_CHARS]
 
         today = now_local().strftime("%Y-%m-%d")
         weekday = now_local().strftime("%A")
@@ -284,19 +308,15 @@ intent = choose_time.
             text = text.strip()
 
         try:
-            return json.loads(text)
-
+            result = json.loads(text)
         except json.JSONDecodeError:
+            logger.warning("AI returned non-JSON output: %r", text[:500])
+            return dict(FALLBACK_RESULT)
 
-            print(
-                "AI JSON ERROR. Отримано:",
-                text
-            )
+        # Valid JSON that isn't an object (a list, a bare string) would
+        # crash every caller that does result.get(...).
+        if not isinstance(result, dict):
+            logger.warning("AI returned non-object JSON: %r", text[:500])
+            return dict(FALLBACK_RESULT)
 
-            return {
-                "intent": "general",
-                "service": None,
-                "date": None,
-                "time": None,
-                "after_time": None
-            }
+        return result
