@@ -29,12 +29,13 @@ def db(tmp_path, monkeypatch):
 
 @pytest.fixture
 def business(db):
-    """Business 1, open Mon-Sat 09:00-18:00, closed Sunday, with a
-    90-minute service (id 1) and a 60-minute service (id 2)."""
+    """Business 1 on Pro (no daily booking limit), open Mon-Sat
+    09:00-18:00, closed Sunday, with a 90-minute service (id 1) and a
+    60-minute service (id 2)."""
     conn = db.get_connection()
     conn.execute(
-        "INSERT INTO businesses (id, owner_telegram_id, name, slug) "
-        "VALUES (1, 100, 'Салон', 'salon')"
+        "INSERT INTO businesses (id, owner_telegram_id, name, slug, pro_until) "
+        "VALUES (1, 100, 'Салон', 'salon', '2099-01-01 00:00:00')"
     )
     conn.execute(
         "INSERT INTO services (id, business_id, name, price, duration) "
@@ -62,3 +63,12 @@ def frozen_now(monkeypatch):
 
     monkeypatch.setattr(bookings, "now_local", lambda: FROZEN_NOW)
     return FROZEN_NOW
+
+
+@pytest.fixture
+def free_business(business, db):
+    conn = db.get_connection()
+    conn.execute("UPDATE businesses SET pro_until = NULL WHERE id = 1")
+    conn.commit()
+    conn.close()
+    return 1

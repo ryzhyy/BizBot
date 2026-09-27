@@ -72,3 +72,30 @@ def test_different_users_run_concurrently_same_user_in_order():
         ("start", 2), ("end", 2),
     ]
     assert processor._locks == {}
+
+
+def _per_message_warnings(install_bot_filter):
+    import importlib
+    import warnings
+
+    import bot
+    from contact_settings import get_setcontact_handler, get_setfaq_handler
+    from location_settings import get_setlocation_handler
+    from schedule import get_schedule_handler
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        if install_bot_filter:
+            importlib.reload(bot)
+        get_schedule_handler()
+        get_setlocation_handler()
+        get_setcontact_handler()
+        get_setfaq_handler()
+
+    return [w for w in caught if "per_message" in str(w.message)]
+
+
+def test_per_message_warning_is_silenced_by_bot():
+    # Without bot.py's filter PTB does warn, so the check below is real.
+    assert _per_message_warnings(install_bot_filter=False)
+    assert not _per_message_warnings(install_bot_filter=True)

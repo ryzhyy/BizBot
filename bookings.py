@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from timeutils import now_local
 from database import get_connection, get_working_hours
-from plans import daily_limit_reached
+from plans import FREE_DAILY_BOOKINGS, daily_limit_reached, is_pro
 
 
 def is_daily_free_limit_reached(business_id, booking_date):
@@ -266,17 +266,36 @@ def booking_time_error(
         conn.close()
 
 
+def _confirmed_count(cursor, business_id, booking_date):
+    return cursor.execute(
+        """
+        SELECT COUNT(*) FROM bookings
+        WHERE business_id = ? AND booking_date = ?
+          AND status = 'confirmed'
+        """,
+        (business_id, booking_date)
+    ).fetchone()[0]
+
+
 def create_booking(business_id, customer_id, service_id, booking_date, booking_time):
-    """Повертає id запису або None, якщо час уже перетинається з іншим.
-    BEGIN IMMEDIATE одразу бере блокування на запис, тож перевірка
-    перетину і вставка атомарні: два одночасні клієнти не можуть обидва
-    пройти перевірку і записатись на час, що перетинається."""
+    """Повертає id запису або None, якщо час уже перетинається з іншим
+    або на тарифі Free денний ліміт записів уже вичерпано.
+    BEGIN IMMEDIATE одразу бере блокування на запис, тож перевірки і
+    вставка атомарні: два одночасні клієнти не можуть обидва пройти
+    перевірку і записатись на час, що перетинається, чи понад ліміт."""
+    pro = is_pro(business_id)
+
     conn = get_connection()
     conn.isolation_level = None
     cursor = conn.cursor()
 
     try:
         cursor.execute("BEGIN IMMEDIATE")
+
+        if not pro and _confirmed_count(
+            cursor, business_id, booking_date
+        ) >= FREE_DAILY_BOOKINGS:
+            return None
 
         if _slot_conflicts(
             cursor, business_id, booking_date, booking_time, service_id
