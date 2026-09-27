@@ -14,7 +14,7 @@
 import html
 import time
 import traceback
-from datetime import datetime
+from timeutils import now_local
 
 from telegram import Update
 from telegram.error import Conflict, Forbidden, NetworkError
@@ -142,7 +142,7 @@ async def report_error(bot, error, update=None, user_data=None, where=None):
 
         lines = [
             "🚨 Помилка в боті",
-            f"🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"🕒 {now_local().strftime('%Y-%m-%d %H:%M:%S')}",
         ]
 
         if where:

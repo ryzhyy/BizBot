@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import datetime, timedelta
 
+from timeutils import now_local
 from database import get_connection, get_working_hours
 from plans import daily_limit_reached
 
@@ -184,7 +185,7 @@ def create_booking(business_id, customer_id, service_id, booking_date, booking_t
 
 
 def get_customer_bookings(business_id, customer_id):
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = now_local().strftime("%Y-%m-%d")
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -213,7 +214,7 @@ def get_customer_bookings(business_id, customer_id):
 
 
 def get_business_bookings(business_id):
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = now_local().strftime("%Y-%m-%d")
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -308,7 +309,7 @@ def mark_booking_completed(booking_id):
 
 
 def get_upcoming_bookings_needing_reminder(hours_ahead=2):
-    now = datetime.now()
+    now = now_local()
     window_end = now + timedelta(hours=hours_ahead)
 
     now_str = now.strftime("%Y-%m-%d %H:%M")

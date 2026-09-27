@@ -20,6 +20,7 @@ plans без циклічного імпорту.
 """
 from datetime import datetime, timedelta
 
+from timeutils import now_local
 from database import get_connection
 
 
@@ -76,15 +77,15 @@ def get_pro_until(business_or_id):
 
 def is_pro(business_or_id):
     until = get_pro_until(business_or_id)
-    return until is not None and until > datetime.now()
+    return until is not None and until > now_local()
 
 
 def pro_days_left(business_or_id):
     until = get_pro_until(business_or_id)
-    if until is None or until <= datetime.now():
+    if until is None or until <= now_local():
         return 0
     # Округлюємо вгору: 13 днів 2 год — це «ще 14 днів».
-    seconds = (until - datetime.now()).total_seconds()
+    seconds = (until - now_local()).total_seconds()
     return int(-(-seconds // 86400))
 
 
@@ -100,7 +101,7 @@ def plan_label(business_or_id):
 
 def extend_pro(business_id, days):
     """Продовжити Pro на N днів від пізнішого з: зараз / поточний кінець."""
-    now = datetime.now()
+    now = now_local()
     current = get_pro_until(business_id)
     start = current if current and current > now else now
     new_until = start + timedelta(days=days)
@@ -232,7 +233,7 @@ def plan_overview_text(business):
     business_id = business["id"]
     services_total = len(_all_active_services(business_id))
     hidden = len(hidden_service_ids(business_id))
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = now_local().strftime("%Y-%m-%d")
 
     lines = [
         f"🏢 {business['name']}",
@@ -313,7 +314,7 @@ async def check_pro_expirations(bot):
         print("PRO EXPIRATION CHECK ERROR:", error)
         return
 
-    now = datetime.now()
+    now = now_local()
 
     for row in rows:
         until = _parse(row["pro_until"])

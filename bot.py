@@ -2,6 +2,7 @@ import os
 from html import escape as html_escape
 from datetime import datetime, timedelta
 
+from timeutils import now_local
 from setup import get_setup_handler
 from schedule import get_schedule_handler
 from database import init_database, get_working_hours
@@ -706,7 +707,7 @@ def build_service_choice_keyboard(services, business_category=None):
 
 
 def build_date_choice_keyboard(business_id=None, service_id=None, count=4):
-    today = datetime.now()
+    today = now_local()
 
     weekdays = [
         "Пн", "Вт", "Ср", "Чт",
@@ -1763,7 +1764,7 @@ async def ai_message(
                 return
 
             # Залишаємо тільки актуальні записи
-            now = datetime.now()
+            now = now_local()
             active_bookings = []
 
             for booking in bookings:

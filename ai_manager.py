@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from timeutils import now_local
 
 from openai import AsyncOpenAI
 
@@ -21,8 +21,8 @@ class AIManager:
         if conversation_state is None:
             conversation_state = {}
 
-        today = datetime.now().strftime("%Y-%m-%d")
-        weekday = datetime.now().strftime("%A")
+        today = now_local().strftime("%Y-%m-%d")
+        weekday = now_local().strftime("%A")
 
         # Лише послуги, на які клієнт може записатися за тарифом бізнесу.
         services = get_visible_services(business_id) if business_id else []
