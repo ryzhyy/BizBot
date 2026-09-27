@@ -45,6 +45,7 @@ from client_faq import build_faq_view, get_client_faq_handler
 from error_reporting import error_handler, report_error
 from backups import BACKUP_TIME, send_daily_backup
 from update_processing import PerUserUpdateProcessor
+from masters import get_assign_master_handler, get_service_master_name
 from owner_events import on_start, on_booking_created, notify_platform_owner
 from plans import (
     PLATFORM_CONTACT,
@@ -557,7 +558,7 @@ async def notify_owner_daily_limit(bot, business, date):
 
 async def notify_owner_of_booking(
     context, business, customer_name, service_name, date, time,
-    customer_phone=None
+    customer_phone=None, master_name=None
 ):
     if not business:
         return
@@ -568,6 +569,7 @@ async def notify_owner_of_booking(
         return
 
     phone_line = f"📱 {customer_phone}\n" if customer_phone else ""
+    master_line = f"👤 Майстер: {master_name}\n" if master_name else ""
     emoji = get_service_emoji(service_name, business["category"])
 
     try:
@@ -578,6 +580,7 @@ async def notify_owner_of_booking(
                 f"👤 {customer_name}\n"
                 f"{phone_line}"
                 f"{emoji} {service_name}\n"
+                f"{master_line}"
                 f"📅 {date}\n"
                 f"🕒 {time}"
             )
@@ -696,7 +699,8 @@ async def finalize_booking(
         service_name,
         date,
         time,
-        customer_phone=customer_phone
+        customer_phone=customer_phone,
+        master_name=get_service_master_name(service_id)
     )
 
     await context.bot.send_message(
@@ -1085,8 +1089,9 @@ async def admin(
 
     for booking in bookings:
 
-        booking_id, client_name, service, date, time = booking
+        booking_id, client_name, service, date, time, master = booking
         emoji = get_service_emoji(service, business["category"])
+        master_line = f"👤 Майстер: {master}\n" if master else ""
 
         keyboard = [[
             InlineKeyboardButton(
@@ -1103,6 +1108,7 @@ async def admin(
             f"🆔 Запис #{booking_id}\n\n"
             f"👤 {client_name}\n"
             f"{emoji} {service}\n"
+            f"{master_line}"
             f"📅 {date}\n"
             f"🕐 {time}",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -2631,6 +2637,9 @@ def main():
     app.add_handler(
         get_addservice_handler()
     )
+
+    # Має стояти ДО загального button_handler, який ловить усі callback-и.
+    app.add_handler(get_assign_master_handler())
 
     app.add_handler(
         get_services_handler()
