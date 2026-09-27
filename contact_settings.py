@@ -9,6 +9,8 @@ from telegram.ext import (
     filters,
 )
 
+import input_limits
+from input_limits import clean_text, too_long_text
 from plans import is_pro, pro_required_text
 from business_context import (
     get_business_by_owner,
@@ -101,7 +103,13 @@ async def setcontact_manual_value(
         )
         return ConversationHandler.END
 
-    value = update.message.text.strip()
+    value = clean_text(update.message.text, input_limits.CONTACT_VALUE)
+
+    if value is None:
+        await update.message.reply_text(
+            too_long_text(input_limits.CONTACT_VALUE)
+        )
+        return CONTACT_MANUAL_VALUE
 
     set_business_contact(business["id"], "manual", value)
 
@@ -279,9 +287,15 @@ async def setfaq_add_question(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    context.user_data["faq_pending_question"] = (
-        update.message.text.strip()
-    )
+    question = clean_text(update.message.text, input_limits.FAQ_QUESTION)
+
+    if question is None:
+        await update.message.reply_text(
+            too_long_text(input_limits.FAQ_QUESTION)
+        )
+        return FAQ_ADD_QUESTION
+
+    context.user_data["faq_pending_question"] = question
 
     await update.message.reply_text("А тепер відповідь на нього:")
 
@@ -292,9 +306,16 @@ async def setfaq_add_answer(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+    answer = clean_text(update.message.text, input_limits.FAQ_ANSWER)
+
+    if answer is None:
+        await update.message.reply_text(
+            too_long_text(input_limits.FAQ_ANSWER)
+        )
+        return FAQ_ADD_ANSWER
+
     business_id = context.user_data.get("faq_business_id")
     question = context.user_data.pop("faq_pending_question", None)
-    answer = update.message.text.strip()
 
     if business_id and question:
         add_faq_item(business_id, question, answer)

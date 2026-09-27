@@ -72,7 +72,6 @@ from bookings import (
     get_customer,
     get_or_create_customer,
     set_customer_phone,
-    is_slot_taken,
     booking_time_error,
     is_daily_free_limit_reached,
     get_available_times,
@@ -1504,13 +1503,14 @@ async def button_handler(
             )
             return
 
-        # Important: re-check before saving.
-        if is_slot_taken(booking_business_id, date, time, service_id):
+        # Important: re-check before saving. Checks working hours too:
+        # the time comes from a button, and callback data can be forged.
+        slot_error = booking_time_error(
+            booking_business_id, date, time, service_id
+        )
 
-            await query.message.reply_text(
-                "😔 Цей час щойно зайняли.\n"
-                "Будь ласка, оберіть інший."
-            )
+        if slot_error:
+            await query.message.reply_text(slot_error)
 
             clear_booking_flow_state(context)
             return
@@ -2527,12 +2527,14 @@ async def handle_contact(
         context.user_data.pop("pending_phone_booking", None)
         return
 
-    # Слот могли зайняти, поки клієнт ділився контактом.
-    if is_slot_taken(
+    # Слот могли зайняти (або час минути), поки клієнт ділився контактом.
+    slot_error = booking_time_error(
         business_id, pending["date"], pending["time"], pending["service_id"]
-    ):
+    )
+
+    if slot_error:
         await update.message.reply_text(
-            "😔 Цей час щойно зайняли. Спробуйте ще раз.",
+            slot_error,
             reply_markup=client_menu_keyboard_for(update.effective_user.id)
         )
         context.user_data.pop("pending_phone_booking", None)

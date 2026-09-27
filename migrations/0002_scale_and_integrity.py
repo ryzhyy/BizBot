@@ -302,7 +302,7 @@ def up(cursor):
     # RESTRICT check and joins, and the constraint that actually
     # prevents double-booking: only one confirmed booking may hold a
     # given (business, date, time) slot, enforced by the database
-    # itself rather than by the app's is_slot_taken() pre-check, which
+    # itself rather than by the app's pre-check, which
     # two concurrent requests can both pass.
     _rebuild_table(
         cursor,

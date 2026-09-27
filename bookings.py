@@ -186,24 +186,6 @@ def _slot_conflicts(
     )
 
 
-def is_slot_taken(
-    business_id, booking_date, booking_time,
-    service_id=None, ignore_booking_id=None
-):
-    """Чи перетинається час [початок, початок + тривалість послуги)
-    з іншим підтвердженим записом цього бізнесу. ignore_booking_id —
-    запис, який переносимо: сам із собою він не конфліктує."""
-    conn = get_connection()
-
-    try:
-        return _slot_conflicts(
-            conn.cursor(), business_id, booking_date, booking_time,
-            service_id, ignore_booking_id
-        )
-    finally:
-        conn.close()
-
-
 def get_available_times(business_id, date, service_id=None):
     day_schedule = _day_schedule(business_id, date, service_id)
 
