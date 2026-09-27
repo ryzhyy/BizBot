@@ -31,6 +31,7 @@ from location_settings import get_setlocation_handler
 from platform_admin import get_platform_handlers, OWNER_TELEGRAM_ID
 from client_faq import build_faq_view, get_client_faq_handler
 from error_reporting import error_handler, report_error
+from backups import BACKUP_TIME, send_daily_backup
 from owner_events import on_start, on_booking_created, notify_platform_owner
 from plans import (
     PLATFORM_CONTACT,
@@ -2709,6 +2710,9 @@ def main():
         interval=900,
         first=10
     )
+
+    # Щодня о 03:00 за Києвом — копія бази власнику платформи в Telegram.
+    app.job_queue.run_daily(send_daily_backup, time=BACKUP_TIME)
 
     print("BizBot v0.4   запущений!")
 
