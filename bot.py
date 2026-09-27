@@ -32,6 +32,7 @@ from platform_admin import get_platform_handlers, OWNER_TELEGRAM_ID
 from client_faq import build_faq_view, get_client_faq_handler
 from error_reporting import error_handler, report_error
 from backups import BACKUP_TIME, send_daily_backup
+from update_processing import PerUserUpdateProcessor
 from owner_events import on_start, on_booking_created, notify_platform_owner
 from plans import (
     PLATFORM_CONTACT,
@@ -2586,6 +2587,7 @@ def main():
         .builder()
         .token(TOKEN)
         .post_init(post_init)
+        .concurrent_updates(PerUserUpdateProcessor())
         .build()
     )
 
