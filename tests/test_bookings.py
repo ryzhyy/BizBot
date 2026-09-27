@@ -107,3 +107,25 @@ def test_get_or_create_customer_keeps_name_when_none_given(business):
     customer_id = bookings.get_or_create_customer(1, 7, "Іван")
     assert bookings.get_or_create_customer(1, 7, None) == customer_id
     assert bookings.get_customer(1, 7)["name"] == "Іван"
+
+
+def test_free_plan_allows_one_booking_per_day(free_business, frozen_now):
+    from plans import FREE_DAILY_BOOKINGS
+
+    assert FREE_DAILY_BOOKINGS == 1
+    assert book("10:00", service_id=2)
+    assert book("14:00", service_id=2, telegram_id=2) is None
+    assert book("14:00", service_id=2, telegram_id=2, date="2026-10-06")
+
+
+def test_free_plan_limit_holds_under_concurrency(free_business, frozen_now):
+    times = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00",
+             "15:00", "16:00"]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(
+            lambda i: book(times[i], service_id=2, telegram_id=200 + i),
+            range(len(times)),
+        ))
+
+    assert sum(result is not None for result in results) == 1

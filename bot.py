@@ -1,6 +1,18 @@
 import os
+import warnings
 from html import escape as html_escape
 from datetime import datetime, timedelta
+
+from telegram.warnings import PTBUserWarning
+
+# Our ConversationHandlers mix text and button steps, so per_message=False
+# is intentional; PTB still warns about it at every start, and Railway
+# shows those stderr lines as errors, burying real ones.
+warnings.filterwarnings(
+    "ignore",
+    message=r"If 'per_message=False', 'CallbackQueryHandler' will not be tracked",
+    category=PTBUserWarning,
+)
 
 from timeutils import now_local
 from setup import get_setup_handler
@@ -649,6 +661,20 @@ async def finalize_booking(
     )
 
     if booking_id is None:
+        # create_booking() відмовляє атомарно; тут лише обираємо, яке
+        # пояснення показати клієнту.
+        if is_daily_free_limit_reached(business["id"], date):
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=(
+                    DAILY_LIMIT_REACHED_TEXT
+                    + daily_limit_contact_line(business)
+                ),
+                reply_markup=client_menu_keyboard_for(user.id)
+            )
+            await notify_owner_daily_limit(context.bot, business, date)
+            return
+
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="😔 Цей час щойно зайняли. Спробуйте ще раз.",
