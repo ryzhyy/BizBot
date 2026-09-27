@@ -22,9 +22,9 @@ def test_long_booking_blocks_following_hour(business, frozen_now):
     assert bookings.get_available_times(1, MONDAY, 2) == [
         "09:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00",
     ]
-    assert bookings.is_slot_taken(1, MONDAY, "11:00", 2)
-    assert bookings.is_slot_taken(1, MONDAY, "11:29", 2)
-    assert not bookings.is_slot_taken(1, MONDAY, "11:30", 2)
+    assert "зайнятий" in bookings.booking_time_error(1, MONDAY, "11:00", 2)
+    assert "зайнятий" in bookings.booking_time_error(1, MONDAY, "11:29", 2)
+    assert bookings.booking_time_error(1, MONDAY, "11:30", 2) is None
 
 
 def test_closed_day_has_no_times(business, frozen_now):

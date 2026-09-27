@@ -16,6 +16,8 @@ from plans import (
     hidden_service_ids,
     pro_required_text,
 )
+import input_limits
+from input_limits import clean_text, too_long_text
 from owner_events import on_service_added
 from masters import (
     MASTER_QUESTION_TEXT,
@@ -96,9 +98,15 @@ async def service_name(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    context.user_data["service_name"] = (
-        update.message.text.strip()
-    )
+    name = clean_text(update.message.text, input_limits.SERVICE_NAME)
+
+    if name is None:
+        await update.message.reply_text(
+            too_long_text(input_limits.SERVICE_NAME)
+        )
+        return SERVICE_NAME
+
+    context.user_data["service_name"] = name
 
     await update.message.reply_text(
         "💰 Вкажіть ціну в гривнях.\n\n"
@@ -126,6 +134,12 @@ async def service_price(
     if price < 0:
         await update.message.reply_text(
             "⚠️ Ціна не може бути від'ємною."
+        )
+        return SERVICE_PRICE
+
+    if price > input_limits.MAX_PRICE_UAH:
+        await update.message.reply_text(
+            f"⚠️ Ціна не може перевищувати {input_limits.MAX_PRICE_UAH} грн."
         )
         return SERVICE_PRICE
 
@@ -157,6 +171,13 @@ async def service_duration(
     if duration <= 0:
         await update.message.reply_text(
             "⚠️ Тривалість повинна бути більшою за 0."
+        )
+        return SERVICE_DURATION
+
+    if duration > input_limits.MAX_DURATION_MINUTES:
+        await update.message.reply_text(
+            "⚠️ Тривалість не може перевищувати "
+            f"{input_limits.MAX_DURATION_MINUTES} хв."
         )
         return SERVICE_DURATION
 

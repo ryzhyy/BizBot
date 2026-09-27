@@ -15,6 +15,8 @@ from telegram.ext import (
     filters,
 )
 
+import input_limits
+from input_limits import clean_text, too_long_text
 from plans import is_pro, pro_required_text
 from business_context import (
     get_business_by_owner,
@@ -161,7 +163,13 @@ async def setlocation_save_address(
         )
         return ConversationHandler.END
 
-    address_text = update.message.text.strip()
+    address_text = clean_text(update.message.text, input_limits.ADDRESS_TEXT)
+
+    if address_text is None:
+        await update.message.reply_text(
+            too_long_text(input_limits.ADDRESS_TEXT)
+        )
+        return LOCATION_WAITING_ADDRESS
 
     set_business_location(
         business["id"],

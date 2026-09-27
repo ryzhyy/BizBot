@@ -10,11 +10,48 @@ from telegram.ext import (
 
 import sqlite3
 
+import input_limits
 from database import get_connection, generate_unique_slug
+from input_limits import clean_text, too_long_text
 from owner_events import on_setup_started, on_business_created
 
 
 NAME, CATEGORY, CITY = range(3)
+
+
+def create_business(owner_id, name, category, city, attempts=3):
+    """Business id, or None if this owner already has a business.
+
+    The slug is picked before the insert, so two owners creating
+    businesses with the same name at the same moment can pick the same
+    slug; the loser retries with a fresh one instead of being told it
+    already has a business."""
+    for _ in range(attempts):
+        conn = get_connection()
+        try:
+            slug = generate_unique_slug(conn.cursor(), name)
+            cursor = conn.execute(
+                """
+                INSERT INTO businesses
+                (owner_telegram_id, name, category, city, slug)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (owner_id, name, category, city, slug)
+            )
+            conn.commit()
+            return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            owned = conn.execute(
+                "SELECT 1 FROM businesses WHERE owner_telegram_id = ?",
+                (owner_id,)
+            ).fetchone()
+            if owned:
+                return None
+        finally:
+            conn.close()
+
+    raise RuntimeError("Could not pick a unique slug for a new business")
 
 
 async def setup_start(
@@ -58,7 +95,15 @@ async def setup_name(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    context.user_data["setup_name"] = update.message.text.strip()
+    name = clean_text(update.message.text, input_limits.BUSINESS_NAME)
+
+    if name is None:
+        await update.message.reply_text(
+            too_long_text(input_limits.BUSINESS_NAME)
+        )
+        return NAME
+
+    context.user_data["setup_name"] = name
 
     await update.message.reply_text(
         "Чудово 👍\n\n"
@@ -77,7 +122,15 @@ async def setup_category(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    context.user_data["setup_category"] = update.message.text.strip()
+    category = clean_text(update.message.text, input_limits.BUSINESS_CATEGORY)
+
+    if category is None:
+        await update.message.reply_text(
+            too_long_text(input_limits.BUSINESS_CATEGORY)
+        )
+        return CATEGORY
+
+    context.user_data["setup_category"] = category
 
     await update.message.reply_text(
         "📍 У якому місті знаходиться бізнес?"
@@ -90,41 +143,24 @@ async def setup_city(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    city = update.message.text.strip()
+    city = clean_text(update.message.text, input_limits.BUSINESS_CITY)
+
+    if city is None:
+        await update.message.reply_text(
+            too_long_text(input_limits.BUSINESS_CITY)
+        )
+        return CITY
 
     owner_id = update.effective_user.id
     name = context.user_data["setup_name"]
     category = context.user_data["setup_category"]
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    business_id = create_business(owner_id, name, category, city)
 
-    slug = generate_unique_slug(cursor, name)
-
-    try:
-        cursor.execute(
-            """
-            INSERT INTO businesses
-            (owner_telegram_id, name, category, city, slug)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                owner_id,
-                name,
-                category,
-                city,
-                slug
-            )
-        )
-        business_id = cursor.lastrowid
-        conn.commit()
-    except sqlite3.IntegrityError:
+    if business_id is None:
         # Two /setup flows for the same owner finished at the same
         # time; the UNIQUE(owner_telegram_id) constraint let only one
         # through, so this one has nothing to create.
-        conn.rollback()
-        conn.close()
-
         context.user_data.pop("setup_name", None)
         context.user_data.pop("setup_category", None)
 
@@ -132,8 +168,6 @@ async def setup_city(
             "⚠️ У вас уже є бізнес."
         )
         return ConversationHandler.END
-
-    conn.close()
 
     context.user_data.pop("setup_name", None)
     context.user_data.pop("setup_category", None)
