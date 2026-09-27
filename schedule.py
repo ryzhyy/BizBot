@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from telegram import (
@@ -22,6 +23,8 @@ from database import (
 )
 from business_context import get_business_by_owner, get_business_services
 from owner_events import business_has_schedule, on_first_schedule
+
+logger = logging.getLogger(__name__)
 
 CHOOSE_SCOPE, CHOOSE_SERVICE, WAITING_SCHEDULE = range(1, 4)
 
@@ -259,8 +262,8 @@ async def save_schedule(
 
             saved += 1
 
-    except Exception as error:
-        print("SCHEDULE ERROR:", error)
+    except Exception:
+        logger.exception("Saving schedule failed")
 
         await update.message.reply_text(
             "⚠️ Не вдалося розпізнати графік.\n\n"

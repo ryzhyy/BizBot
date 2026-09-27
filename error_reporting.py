@@ -11,6 +11,7 @@
 надсилається не частіше ніж раз на THROTTLE_SECONDS, а наступне
 сповіщення каже, скільки разів вона повторилась за цей час.
 """
+import logging
 import html
 import time
 import traceback
@@ -21,6 +22,8 @@ from telegram.error import Conflict, Forbidden, NetworkError
 
 from business_context import get_business_by_id, get_business_by_owner
 from platform_admin import OWNER_TELEGRAM_ID
+
+logger = logging.getLogger(__name__)
 
 
 THROTTLE_SECONDS = 10 * 60
@@ -181,7 +184,7 @@ async def report_error(bot, error, update=None, user_data=None, where=None):
         )
 
     except Exception as send_error:
-        print("ERROR REPORT FAILED:", send_error)
+        logger.error("Error report to platform owner failed: %s", send_error)
 
 
 async def error_handler(update, context):
@@ -190,11 +193,12 @@ async def error_handler(update, context):
     # Короткі збої мережі бібліотека сама повторює — це не проблема
     # бізнесу, тільки шум у сповіщеннях.
     if isinstance(error, NetworkError):
-        print("NETWORK ERROR (ignored):", error)
+        logger.warning("Network error (retried by the library): %s", error)
         return
 
-    print("UNHANDLED ERROR:")
-    traceback.print_exception(type(error), error, error.__traceback__)
+    logger.error(
+        "Unhandled error", exc_info=(type(error), error, error.__traceback__)
+    )
 
     user_data = None
     try:

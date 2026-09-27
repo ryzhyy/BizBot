@@ -509,10 +509,17 @@ def get_upcoming_bookings_needing_reminder(hours_ahead=2):
         JOIN businesses ON businesses.id = bookings.business_id
         WHERE bookings.status = 'confirmed'
           AND bookings.reminder_sent = 0
+          -- Served by idx_bookings_pending_reminder; the exact
+          -- date+time window is then checked on that small set.
+          AND bookings.booking_date BETWEEN ? AND ?
           AND (bookings.booking_date || ' ' || bookings.booking_time)
               BETWEEN ? AND ?
+        ORDER BY bookings.booking_date, bookings.booking_time
         """,
-        (now_str, window_end_str)
+        (
+            now.strftime("%Y-%m-%d"), window_end.strftime("%Y-%m-%d"),
+            now_str, window_end_str,
+        )
     )
 
     rows = cursor.fetchall()

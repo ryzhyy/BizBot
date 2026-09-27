@@ -10,24 +10,26 @@ from database import (
 )
 
 
-def get_all_businesses():
+def count_businesses():
     conn = get_connection()
-    cursor = conn.cursor()
+    count = conn.execute("SELECT COUNT(*) FROM businesses").fetchone()[0]
+    conn.close()
+    return count
 
-    cursor.execute(
+
+def get_businesses_page(limit, offset):
+    conn = get_connection()
+    rows = conn.execute(
         """
-        SELECT id, name, category, city, phone, owner_telegram_id,
-               support_contact_mode, support_contact_value, faq_text,
-               latitude, longitude, address_text, slug
+        SELECT id, name, category
         FROM businesses
         ORDER BY id
-        """
-    )
-
-    businesses = cursor.fetchall()
+        LIMIT ? OFFSET ?
+        """,
+        (limit, offset)
+    ).fetchall()
     conn.close()
-
-    return businesses
+    return rows
 
 
 def get_business_by_owner(owner_telegram_id):

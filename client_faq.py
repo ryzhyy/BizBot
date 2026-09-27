@@ -9,6 +9,7 @@
 callback_data містить business_id, тож кнопки працюють навіть після
 перезапуску бота (коли клієнтський контекст у пам'яті вже втрачено).
 """
+import logging
 from html import escape as html_escape
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -20,6 +21,8 @@ from business_context import (
     get_faq_items,
 )
 from plans import is_pro
+
+logger = logging.getLogger(__name__)
 
 
 MAX_BUTTON_LABEL = 55
@@ -147,7 +150,7 @@ async def client_faq_callback(update, context):
         if "not modified" in str(error).lower():
             return
 
-        print("CLIENT FAQ EDIT ERROR:", error)
+        logger.warning("Client FAQ edit failed: %s", error)
         await query.message.reply_text(
             text,
             reply_markup=keyboard,

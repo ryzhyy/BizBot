@@ -10,11 +10,14 @@ To add a migration: create ``migrations/000N_name.py`` with a module
 docstring and an ``up(cursor)`` function, then nothing else — it is
 picked up automatically next time ``run_migrations`` is called.
 """
+import logging
 
 import importlib
 import pkgutil
 import sqlite3
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 def _discover_migrations():
@@ -67,7 +70,7 @@ def _backup_before_migrating(conn, first_pending_version):
     finally:
         backup_conn.close()
 
-    print(f"Database backed up to {backup_path} before migrating")
+    logger.info("Database backed up to %s before migrating", backup_path)
     return backup_path
 
 

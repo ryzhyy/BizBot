@@ -6,6 +6,7 @@
 Доступ визначається через OWNER_TELEGRAM_ID у .env, а не хардкодиться
 в коді, бо репозиторій публічний.
 """
+import logging
 import os
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -13,7 +14,8 @@ from telegram.ext import CallbackQueryHandler, CommandHandler
 
 from database import get_working_hours, DAY_NAMES
 from business_context import (
-    get_all_businesses,
+    count_businesses,
+    get_businesses_page,
     get_business_by_id,
     get_business_services,
     get_faq_items,
@@ -28,6 +30,8 @@ from plans import (
     is_pro,
     plan_label,
 )
+
+logger = logging.getLogger(__name__)
 
 
 OWNER_TELEGRAM_ID = os.getenv("OWNER_TELEGRAM_ID")
@@ -73,11 +77,22 @@ def _format_hours(business_id):
     return lines
 
 
-def _business_list_message():
-    businesses = get_all_businesses()
+# Telegram rejects messages with more than ~100 inline buttons, so the
+# list is paged; this also keeps is_pro() lookups to one page.
+BUSINESSES_PER_PAGE = 20
 
-    if not businesses:
+
+def _business_list_message(page=0):
+    total = count_businesses()
+
+    if not total:
         return "📭 На платформі ще немає жодного бізнесу.", None
+
+    pages = (total + BUSINESSES_PER_PAGE - 1) // BUSINESSES_PER_PAGE
+    page = max(0, min(page, pages - 1))
+    businesses = get_businesses_page(
+        BUSINESSES_PER_PAGE, page * BUSINESSES_PER_PAGE
+    )
 
     keyboard = [
         [InlineKeyboardButton(
@@ -88,11 +103,26 @@ def _business_list_message():
         for business in businesses
     ]
 
+    if pages > 1:
+        navigation = []
+        if page > 0:
+            navigation.append(InlineKeyboardButton(
+                "◀️", callback_data=f"platform_page_{page - 1}"
+            ))
+        navigation.append(InlineKeyboardButton(
+            f"{page + 1}/{pages}", callback_data=f"platform_page_{page}"
+        ))
+        if page < pages - 1:
+            navigation.append(InlineKeyboardButton(
+                "▶️", callback_data=f"platform_page_{page + 1}"
+            ))
+        keyboard.append(navigation)
+
     keyboard.append([CLOSE_BUTTON])
 
     text = (
         f"👑 Панель власника платформи\n\n"
-        f"Усього бізнесів: {len(businesses)}\n\n"
+        f"Усього бізнесів: {total}\n\n"
         "Оберіть бізнес, щоб переглянути деталі:"
     )
 
@@ -210,7 +240,7 @@ async def _show_in_place(query, text, keyboard):
         if "not modified" in str(error).lower():
             return
         # Повідомлення застаре/видалене — показуємо як нове.
-        print("PLATFORM EDIT ERROR:", error)
+        logger.warning("Platform panel edit failed: %s", error)
         await query.message.reply_text(text, reply_markup=keyboard)
 
 
@@ -240,6 +270,19 @@ async def platform_back_to_list(update, context):
     await _show_in_place(query, text, keyboard)
 
 
+async def platform_page(update, context):
+    query = update.callback_query
+    await query.answer()
+
+    if not is_platform_owner(query.from_user.id):
+        await query.message.reply_text(_access_denied_text())
+        return
+
+    page = int(query.data.removeprefix("platform_page_"))
+    text, keyboard = _business_list_message(page)
+    await _show_in_place(query, text, keyboard)
+
+
 async def platform_close(update, context):
     query = update.callback_query
     await query.answer()
@@ -252,7 +295,7 @@ async def platform_close(update, context):
     except Exception as error:
         # Telegram не дає видаляти повідомлення, старші за 48 годин —
         # тоді просто прибираємо кнопки й позначаємо панель закритою.
-        print("PLATFORM CLOSE ERROR:", error)
+        logger.warning("Platform panel close failed: %s", error)
         try:
             await query.edit_message_text("👑 Панель закрито.")
         except Exception:
@@ -266,7 +309,7 @@ async def _notify_business_owner(bot, business, text):
         await bot.send_message(chat_id=business["owner_telegram_id"], text=text)
         return True
     except Exception as error:
-        print("PLAN OWNER NOTIFY ERROR:", error)
+        logger.warning("Plan owner notification failed: %s", error)
         return False
 
 
@@ -390,6 +433,9 @@ def get_platform_handlers():
         ),
         CallbackQueryHandler(
             platform_back_to_list, pattern=r"^platform_back$"
+        ),
+        CallbackQueryHandler(
+            platform_page, pattern=r"^platform_page_\d+$"
         ),
         CallbackQueryHandler(
             platform_close, pattern=r"^platform_close$"

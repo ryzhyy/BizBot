@@ -14,7 +14,10 @@
 так, ніби діалогу й не було: кнопка відкриває свій розділ, команда
 виконується, а кнопка іншого діалогу — запускає той діалог.
 """
+import logging
 from telegram.ext import ConversationHandler, MessageHandler, filters
+
+logger = logging.getLogger(__name__)
 
 
 # Кнопки меню, які самі є точкою входу в окремий діалог, тож не входять
@@ -61,7 +64,7 @@ def interrupt_handlers(cleanup_keys=(), action_name=None):
                     f"↩️ {action_name} скасовано."
                 )
             except Exception as error:
-                print("INTERRUPT NOTICE ERROR:", error)
+                logger.warning("Interrupt notice failed: %s", error)
 
         # Повертаємо повідомлення в чергу: бот обробить його вже ПІСЛЯ
         # того, як цей діалог завершиться — як звичайну кнопку/команду.

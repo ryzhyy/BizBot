@@ -1,5 +1,6 @@
 """Make cross-business references impossible at the database level.
 
+
 Every table carries its own business_id, but nothing stopped a row from
 pointing at another business's row: a booking of business B could use
 a service or customer of business A (this happened through stale
@@ -12,6 +13,11 @@ on every INSERT/UPDATE, whatever code path writes.
 Existing rows are not touched: violations that pre-date this migration
 are only reported, so nothing is silently rewritten or deleted.
 """
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 TRIGGERS = [
     ("bookings_service_same_business", "bookings", "INSERT", """
@@ -97,7 +103,7 @@ def up(cursor):
     for label, sql in EXISTING_VIOLATIONS.items():
         count = cursor.execute(sql).fetchone()[0]
         if count:
-            print(
-                f"WARNING: {count} pre-existing {label} (left as is, "
-                "needs manual review)"
+            logger.warning(
+                "%s pre-existing %s (left as is, needs manual review)",
+                count, label
             )

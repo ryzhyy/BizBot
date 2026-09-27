@@ -1,9 +1,18 @@
+import asyncio
+import logging
 import os
 import warnings
 from html import escape as html_escape
 from datetime import datetime, timedelta
 
 from telegram.warnings import PTBUserWarning
+
+from logging_setup import configure_logging
+
+# Before any other import below can log (init_database runs migrations
+# at import time).
+configure_logging()
+logger = logging.getLogger(__name__)
 
 # Our ConversationHandlers mix text and button steps, so per_message=False
 # is intentional; PTB still warns about it at every start, and Railway
@@ -17,7 +26,7 @@ warnings.filterwarnings(
 from timeutils import now_local
 from setup import get_setup_handler
 from schedule import get_schedule_handler
-from database import init_database, get_working_hours
+from database import DB_NAME, init_database, get_working_hours
 from service_emoji import get_service_emoji
 
 from business_context import (
@@ -77,7 +86,13 @@ from bookings import (
     mark_reminder_sent,
     reschedule_booking,
 )
-from ai_manager import AIManager
+from ai_manager import (
+    MAX_USER_TEXT_CHARS,
+    OPENAI_MAX_RETRIES,
+    OPENAI_TIMEOUT_SECONDS,
+    AIManager,
+)
+from rate_limit import ai_limiter
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from telegram import (
@@ -92,13 +107,21 @@ from telegram import (
     Update,
 )
 from telegram.helpers import escape_markdown
-from telegram.error import Forbidden
+from telegram.error import (
+    BadRequest,
+    Forbidden,
+    NetworkError,
+    RetryAfter,
+    TimedOut,
+)
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    PersistenceInput,
+    PicklePersistence,
     filters,
 )
 
@@ -108,7 +131,11 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 init_database()
-client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+client = AsyncOpenAI(
+    api_key=OPENAI_API_KEY,
+    timeout=OPENAI_TIMEOUT_SECONDS,
+    max_retries=OPENAI_MAX_RETRIES,
+)
 ai_manager = AIManager(OPENAI_API_KEY)
 
 if not TOKEN:
@@ -381,7 +408,7 @@ async def build_client_help_text(business, context):
                 )
 
         except Exception as error:
-            print("GET CHAT ERROR:", error)
+            logger.warning("get_chat failed: %s", error)
 
     if not contact_line:
         phone = business["phone"] if business else None
@@ -547,7 +574,7 @@ async def notify_owner_daily_limit(bot, business, date):
             )
         )
     except Exception as error:
-        print("DAILY LIMIT OWNER NOTIFY ERROR:", error)
+        logger.warning("Daily-limit owner notification failed: %s", error)
 
     await notify_platform_owner(
         bot,
@@ -586,7 +613,7 @@ async def notify_owner_of_booking(
             )
         )
     except Exception as error:
-        print("OWNER NOTIFY ERROR:", error)
+        logger.warning("New-booking owner notification failed: %s", error)
         # Власник може не дізнатися про запис — це варто знати одразу.
         await report_error(
             context.bot,
@@ -1615,7 +1642,7 @@ async def button_handler(
             )
         except Exception as error:
             client_notified = False
-            print("NOTIFY CLIENT ERROR:", error)
+            logger.warning("Booking-completed client notification failed: %s", error)
 
         if client_notified:
             await query.edit_message_text(
@@ -1699,6 +1726,16 @@ async def ai_message(
             )
             return
 
+    # Кожне повідомлення нижче — платний виклик OpenAI.
+    if not ai_limiter.allow(update.effective_user.id):
+        await update.message.reply_text(
+            "⏳ Забагато повідомлень поспіль. Зачекайте хвилинку, "
+            "будь ласка."
+        )
+        return
+
+    user_text = user_text[:MAX_USER_TEXT_CHARS]
+
     try:
         # Пам'ять поточної розмови
         state = context.user_data.get("ai_state", {})
@@ -1717,7 +1754,7 @@ async def ai_message(
             business_id=current_business_id
         )
 
-        print("AI UNDERSTOOD:", result)
+        logger.debug("AI understood: %s", result)
  
         intent = result.get("intent")
         service = result.get("service")
@@ -1775,7 +1812,7 @@ async def ai_message(
                 time = None
     
     
-        print("NORMALIZED TIME:", time)
+        logger.debug("Normalized time: %s", time)
             
                 # Запам'ятовуємо нову інформацію
         if service:
@@ -2403,7 +2440,7 @@ async def ai_message(
             response.output_text
         )
     except Exception as error:
-        print("AI ERROR:", error)
+        logger.exception("AI chat failed")
 
         await report_error(
             context.bot,
@@ -2525,87 +2562,100 @@ async def handle_contact(
     context.user_data.pop("pending_phone_booking", None)
 
 
-# TEMP DEBUG — прибрати перед фінальним поданням заявки.
-# Дозволяє перевірити клієнтський текст "Допомога" для будь-якого
-# business_id без окремого Telegram-акаунта в ролі клієнта.
-async def debug_client_help(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    if not context.args:
-        await update.message.reply_text(
-            "Використання: /debug_client_help <business_id>"
-        )
-        return
-
-    try:
-        business_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text(
-            "⚠️ business_id має бути числом."
-        )
-        return
-
-    business = get_business_by_id(business_id)
-
-    if not business:
-        await update.message.reply_text(
-            f"⚠️ Бізнес з id={business_id} не знайдено."
-        )
-        return
-
-    text = await build_client_help_text(business, context)
-
-    await update.message.reply_text(
-        f"🐞 DEBUG (business_id={business_id}):\n\n{text}",
-        parse_mode="HTML",
-        link_preview_options=LinkPreviewOptions(is_disabled=True)
-    )
-
-
 async def run_pro_expiration_check(context: ContextTypes.DEFAULT_TYPE):
     await check_pro_expirations(context.bot)
 
 
+# Telegram allows ~30 messages/second per bot; stay under it so a busy
+# hour's reminders don't trip flood control.
+REMINDER_SEND_INTERVAL_SECONDS = 1 / 25
+
+
+def _reminder_text(booking):
+    emoji = get_service_emoji(booking["service"], booking["business_category"])
+    return (
+        "⏰ Нагадування!\n\n"
+        "Ви записані:\n"
+        f"{emoji} {booking['service']}\n"
+        f"📅 {booking['date']}\n"
+        f"🕒 {booking['time']}\n\n"
+        f"Чекаємо на вас у «{booking['business_name']}»!"
+    )
+
+
+async def _report_reminder_failure(bot, booking, error):
+    logger.warning("Reminder #%s undeliverable: %s", booking["id"], error)
+    await report_error(
+        bot, error,
+        where=(
+            f"Нагадування про запис #{booking['id']} "
+            f"(«{booking['business_name']}») не надіслано"
+        )
+    )
+
+
+async def _send_reminder(bot, booking):
+    """True — reminder is done (sent, or can never be delivered);
+    False — transient failure, leave it for the next run (every 15 min,
+    the booking stays in the 2-hour window for several runs)."""
+    for attempt in range(2):
+        try:
+            await bot.send_message(
+                chat_id=booking["customer_telegram_id"],
+                text=_reminder_text(booking)
+            )
+            return True
+        except RetryAfter as error:
+            # Flood control: Telegram says exactly how long to wait.
+            logger.warning(
+                "Reminder #%s hit flood control, waiting %ss",
+                booking["id"], error.retry_after
+            )
+            if attempt == 0:
+                delay = error.retry_after
+                # PTB 22 returns int, or timedelta with PTB_TIMEDELTA set.
+                await asyncio.sleep(
+                    delay.total_seconds()
+                    if hasattr(delay, "total_seconds") else float(delay)
+                )
+                continue
+            return False
+        except Forbidden:
+            # The client blocked the bot: normal, and retrying won't help.
+            return True
+        except BadRequest as error:
+            # E.g. chat not found: permanent, don't retry every 15 minutes.
+            # (Must come before NetworkError, which BadRequest subclasses.)
+            await _report_reminder_failure(bot, booking, error)
+            return True
+        except (TimedOut, NetworkError) as error:
+            logger.warning("Reminder #%s not sent yet: %s", booking["id"], error)
+            return False
+        except Exception as error:
+            # Unknown failure: report once and don't retry every run.
+            await _report_reminder_failure(bot, booking, error)
+            return True
+
+    return False
+
+
 async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
     bookings = get_upcoming_bookings_needing_reminder(hours_ahead=2)
+    pro_cache = {}
 
     for booking in bookings:
+        business_id = booking["business_id"]
+
         # Нагадування клієнтам — функція Pro.
-        if not is_pro(booking["business_id"]):
+        if business_id not in pro_cache:
+            pro_cache[business_id] = is_pro(business_id)
+        if not pro_cache[business_id]:
             continue
 
-        reminder_emoji = get_service_emoji(
-            booking["service"], booking["business_category"]
-        )
+        if await _send_reminder(context.bot, booking):
+            mark_reminder_sent(booking["id"])
 
-        try:
-            await context.bot.send_message(
-                chat_id=booking["customer_telegram_id"],
-                text=(
-                    "⏰ Нагадування!\n\n"
-                    "Ви записані:\n"
-                    f"{reminder_emoji} {booking['service']}\n"
-                    f"📅 {booking['date']}\n"
-                    f"🕒 {booking['time']}\n\n"
-                    f"Чекаємо на вас у «{booking['business_name']}»!"
-                )
-            )
-        except Exception as error:
-            print("REMINDER SEND ERROR:", error)
-
-            # Клієнт заблокував бота — нормальна ситуація, не шумимо.
-            if not isinstance(error, Forbidden):
-                await report_error(
-                    context.bot,
-                    error,
-                    where=(
-                        f"Нагадування про запис #{booking['id']} "
-                        f"(«{booking['business_name']}») не надіслано"
-                    )
-                )
-
-        mark_reminder_sent(booking["id"])
+        await asyncio.sleep(REMINDER_SEND_INTERVAL_SECONDS)
 
 
 DEFAULT_COMMANDS = [
@@ -2643,16 +2693,40 @@ async def post_init(app):
                 scope=BotCommandScopeChat(chat_id=int(OWNER_TELEGRAM_ID))
             )
         except Exception as error:
-            print("PLATFORM COMMAND SCOPE ERROR:", error)
+            logger.warning("Setting platform command scope failed: %s", error)
 
 
-def main():
+def state_file_path():
+    """Next to the database file, i.e. on the same Railway volume."""
+    return os.getenv("STATE_PATH") or os.path.join(
+        os.path.dirname(os.path.abspath(DB_NAME)), "bot_state.pickle"
+    )
+
+
+def build_persistence():
+    # Without this, every deploy/restart forgets which business each
+    # client is connected to (client_business_id) and every unfinished
+    # booking, so every client of every business would have to reopen
+    # the business link. Only user_data is kept: that's where all of
+    # that state lives.
+    return PicklePersistence(
+        filepath=state_file_path(),
+        store_data=PersistenceInput(
+            user_data=True, chat_data=False, bot_data=False,
+            callback_data=False,
+        ),
+        update_interval=30,
+    )
+
+
+def build_application():
     app = (
         Application
         .builder()
         .token(TOKEN)
         .post_init(post_init)
         .concurrent_updates(PerUserUpdateProcessor())
+        .persistence(build_persistence())
         .build()
     )
 
@@ -2733,14 +2807,6 @@ def main():
     # Має стояти ДО загального button_handler, який ловить усі callback-и.
     app.add_handler(get_client_faq_handler())
 
-    # TEMP DEBUG — прибрати перед фінальним поданням заявки.
-    app.add_handler(
-        CommandHandler(
-            "debug_client_help",
-            debug_client_help
-        )
-    )
-
     app.add_handler(
         CallbackQueryHandler(
             button_handler
@@ -2784,7 +2850,13 @@ def main():
     # Щодня о 03:00 за Києвом — копія бази власнику платформи в Telegram.
     app.job_queue.run_daily(send_daily_backup, time=BACKUP_TIME)
 
-    print("BizBot v0.4   запущений!")
+    return app
+
+
+def main():
+    app = build_application()
+
+    logger.info("BizBot v0.4   запущений!")
 
     app.run_polling()
 

@@ -15,9 +15,12 @@
 потрапляє. Усі функції «безпечні»: помилка сповіщення ніколи не
 ламає основну дію користувача.
 """
+import logging
 from database import get_connection
 from business_context import get_business_by_owner
 from platform_admin import OWNER_TELEGRAM_ID
+
+logger = logging.getLogger(__name__)
 
 
 SETUP_ABANDON_SECONDS = 30 * 60
@@ -35,7 +38,7 @@ async def notify_platform_owner(bot, text):
     try:
         await bot.send_message(chat_id=int(OWNER_TELEGRAM_ID), text=text)
     except Exception as error:
-        print("OWNER EVENT NOTIFY ERROR:", error)
+        logger.warning("Owner event notify failed: %s", error)
 
 
 def _scalar(query, params):
@@ -99,7 +102,7 @@ async def on_start(bot, user, business=None):
                 f"👤 {describe_user(user)} відкрив(ла) посилання бізнесу"
             )
     except Exception as error:
-        print("ON START EVENT ERROR:", error)
+        logger.warning("On start event failed: %s", error)
 
 
 # ---------- /setup ----------
@@ -133,7 +136,7 @@ async def on_setup_started(context, user):
             data={"who": describe_user(user)},
         )
     except Exception as error:
-        print("ON SETUP STARTED EVENT ERROR:", error)
+        logger.warning("On setup started event failed: %s", error)
 
 
 async def _check_setup_abandoned(context):
@@ -160,7 +163,7 @@ async def _check_setup_abandoned(context):
             "Можливо, варто написати й допомогти."
         )
     except Exception as error:
-        print("SETUP ABANDON CHECK ERROR:", error)
+        logger.warning("Setup abandon check failed: %s", error)
 
 
 async def on_business_created(context, user, name, category, city):
@@ -180,7 +183,7 @@ async def on_business_created(context, user, name, category, city):
             "Далі: послуги (/addservice) і графік (/schedule)."
         )
     except Exception as error:
-        print("ON BUSINESS CREATED EVENT ERROR:", error)
+        logger.warning("On business created event failed: %s", error)
 
 
 # ---------- послуги / графік / записи ----------
@@ -204,7 +207,7 @@ async def on_service_added(bot, user, business_id, service_name, price):
             f"👤 {describe_user(user)}"
         )
     except Exception as error:
-        print("ON SERVICE ADDED EVENT ERROR:", error)
+        logger.warning("On service added event failed: %s", error)
 
 
 def business_has_schedule(business_id):
@@ -226,7 +229,7 @@ async def on_first_schedule(bot, user, business_id):
             f"👤 {describe_user(user)}"
         )
     except Exception as error:
-        print("ON FIRST SCHEDULE EVENT ERROR:", error)
+        logger.warning("On first schedule event failed: %s", error)
 
 
 async def on_booking_created(bot, business, customer_name,
@@ -248,7 +251,7 @@ async def on_booking_created(bot, business, customer_name,
             f"🗓 {date} о {time}"
         )
     except Exception as error:
-        print("ON BOOKING CREATED EVENT ERROR:", error)
+        logger.warning("On booking created event failed: %s", error)
 
 
 def _business_name(business_id):

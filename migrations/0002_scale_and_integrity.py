@@ -1,5 +1,6 @@
 """Hardens the schema for hundreds of businesses / thousands of clients:
 
+
 - adds the indexes the hot query paths (service lists, per-business
   booking counts) were missing
 - turns FKs from decoration into enforced constraints, with sane
@@ -19,6 +20,11 @@ production data without dropping any of it: duplicates are merged or
 marked, never deleted outright, and constraints are added only after
 the data is made to satisfy them.
 """
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 
 def _columns(cursor, table):
@@ -403,10 +409,10 @@ def up(cursor):
 
     if duplicate_owners:
         owners = ", ".join(str(row["owner_telegram_id"]) for row in duplicate_owners)
-        print(
-            "WARNING: skipping UNIQUE(businesses.owner_telegram_id) — "
-            f"these owner_telegram_id values already own more than one "
-            f"business and need manual review first: {owners}"
+        logger.warning(
+            "Skipping UNIQUE(businesses.owner_telegram_id): these "
+            "owner_telegram_id values already own more than one business "
+            "and need manual review first: %s", owners
         )
     else:
         cursor.execute(
