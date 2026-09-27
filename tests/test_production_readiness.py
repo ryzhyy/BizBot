@@ -377,3 +377,25 @@ def test_platform_page_handler_is_owner_only(monkeypatch, db):
 
     assert edits == [] and "лише власнику платформи" in replies[0]
 
+
+
+# ---------- logging streams ----------
+
+def test_info_goes_to_stdout_and_warnings_to_stderr():
+    import subprocess
+    import sys
+
+    code = (
+        "import logging, logging_setup; logging_setup.configure_logging(); "
+        "log = logging.getLogger('check'); "
+        "log.info('routine line'); log.warning('real problem')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True,
+        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    )
+
+    assert "INFO check: routine line" in result.stdout
+    assert "routine line" not in result.stderr
+    assert "WARNING check: real problem" in result.stderr
+    assert "real problem" not in result.stdout
