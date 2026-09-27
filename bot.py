@@ -636,13 +636,21 @@ async def finalize_booking(
         business["id"], user.id, user.full_name
     )
 
-    create_booking(
+    booking_id = create_booking(
         business["id"],
         customer_id,
         service_id,
         date,
         time
     )
+
+    if booking_id is None:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="😔 Цей час щойно зайняли. Спробуйте ще раз.",
+            reply_markup=client_menu_keyboard_for(user.id)
+        )
+        return
 
     await on_booking_created(
         context.bot, business, user.full_name, service_name, date, time
@@ -2016,12 +2024,18 @@ async def ai_message(
                     )
                     return
 
-                reschedule_booking(
+                rescheduled = reschedule_booking(
                     booking_id,
                     reschedule_business_id,
                     new_date,
                     new_time
                 )
+
+                if not rescheduled:
+                    await update.message.reply_text(
+                        "😔 Цей час щойно зайняли. Оберіть інший час."
+                    )
+                    return
 
                 context.user_data.pop("pending_reschedule", None)
                 context.user_data.pop("ai_state", None)

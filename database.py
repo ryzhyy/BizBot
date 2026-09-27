@@ -19,8 +19,23 @@ DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"]
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_NAME)
+    # timeout: how long a write waits on a lock before raising, instead
+    # of failing instantly under concurrent writers.
+    conn = sqlite3.connect(DB_NAME, timeout=30)
     conn.row_factory = sqlite3.Row
+
+    # WAL lets readers run concurrently with a writer instead of every
+    # write locking the whole file; it's a one-time, persistent setting
+    # on the database file, but harmless (and cheap) to (re)assert here.
+    conn.execute("PRAGMA journal_mode = WAL")
+    # busy_timeout is per-connection and mirrors the driver-level
+    # `timeout` above at the SQLite level, so a write blocked by another
+    # connection retries instead of raising "database is locked".
+    conn.execute("PRAGMA busy_timeout = 30000")
+    # SQLite enforces nothing declared as FOREIGN KEY unless this is set
+    # on every connection — it's off by default for backward compat.
+    conn.execute("PRAGMA foreign_keys = ON")
+
     return conn
 
 
@@ -52,386 +67,15 @@ def generate_unique_slug(cursor, name):
 
 
 def init_database():
+    # Imported lazily: migrations/0001_baseline.py imports
+    # generate_unique_slug back from this module, which would be a
+    # circular import if this were a top-level import instead.
+    from migrations import run_migrations
+
     conn = get_connection()
-    cursor = conn.cursor()
-
-    # -------------------------
-    # BUSINESSES
-    # -------------------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS businesses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            owner_telegram_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            category TEXT,
-            city TEXT,
-            phone TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # -------------------------
-    # SERVICES
-    # -------------------------
-
-   
-    # -------------------------
-    # SERVICES
-    # -------------------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS services (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            business_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            price INTEGER NOT NULL,
-            duration INTEGER NOT NULL,
-            active INTEGER DEFAULT 1,
-            FOREIGN KEY (business_id)
-            REFERENCES businesses(id)
-        )
-    """)
-
-    # -------------------------
-    # WORKING HOURS
-    # -------------------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS working_hours (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            business_id INTEGER NOT NULL,
-            weekday INTEGER NOT NULL,
-            start_time TEXT,
-            end_time TEXT,
-            is_open INTEGER DEFAULT 1,
-
-            FOREIGN KEY (business_id)
-            REFERENCES businesses(id)
-        )
-    """)
-
-    # -------------------------
-    # CUSTOMERS
-    # -------------------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS customers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            business_id INTEGER NOT NULL,
-            telegram_id INTEGER NOT NULL,
-            name TEXT,
-            phone TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-            FOREIGN KEY (business_id)
-            REFERENCES businesses(id)
-        )
-    """)
-
-    # -------------------------
-    # BOOKINGS
-    # -------------------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            business_id INTEGER NOT NULL,
-            customer_id INTEGER,
-            service_id INTEGER NOT NULL,
-            booking_date TEXT NOT NULL,
-            booking_time TEXT NOT NULL,
-            status TEXT DEFAULT 'confirmed',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-            FOREIGN KEY (business_id)
-            REFERENCES businesses(id),
-
-            FOREIGN KEY (customer_id)
-            REFERENCES customers(id),
-
-            FOREIGN KEY (service_id)
-            REFERENCES services(id)
-        )
-    """)
-    
-    
-    # Migration: add active column to existing services table
-    cursor.execute("PRAGMA table_info(services)")
-    columns = [row[1] for row in cursor.fetchall()]
-
-    if "active" not in columns:
-        cursor.execute(
-            "ALTER TABLE services ADD COLUMN active INTEGER DEFAULT 1"
-        )
-
-    # Migration: add support contact / FAQ columns to businesses
-    cursor.execute("PRAGMA table_info(businesses)")
-    business_columns = [row[1] for row in cursor.fetchall()]
-
-    if "support_contact_mode" not in business_columns:
-        cursor.execute(
-            "ALTER TABLE businesses "
-            "ADD COLUMN support_contact_mode TEXT DEFAULT 'auto'"
-        )
-
-    if "support_contact_value" not in business_columns:
-        cursor.execute(
-            "ALTER TABLE businesses "
-            "ADD COLUMN support_contact_value TEXT DEFAULT NULL"
-        )
-
-    if "faq_text" not in business_columns:
-        cursor.execute(
-            "ALTER TABLE businesses "
-            "ADD COLUMN faq_text TEXT DEFAULT NULL"
-        )
-
-    if "latitude" not in business_columns:
-        cursor.execute(
-            "ALTER TABLE businesses "
-            "ADD COLUMN latitude REAL DEFAULT NULL"
-        )
-
-    if "longitude" not in business_columns:
-        cursor.execute(
-            "ALTER TABLE businesses "
-            "ADD COLUMN longitude REAL DEFAULT NULL"
-        )
-
-    if "address_text" not in business_columns:
-        cursor.execute(
-            "ALTER TABLE businesses "
-            "ADD COLUMN address_text TEXT DEFAULT NULL"
-        )
-
-    if "slug" not in business_columns:
-        cursor.execute(
-            "ALTER TABLE businesses "
-            "ADD COLUMN slug TEXT DEFAULT NULL"
-        )
-
-    # Backfill: generate a slug for businesses that don't have one yet
-    cursor.execute(
-        "SELECT id, name FROM businesses WHERE slug IS NULL"
-    )
-    businesses_missing_slug = cursor.fetchall()
-
-    for row in businesses_missing_slug:
-        slug = generate_unique_slug(cursor, row["name"])
-        cursor.execute(
-            "UPDATE businesses SET slug = ? WHERE id = ?",
-            (slug, row["id"])
-        )
-
-    cursor.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_businesses_slug "
-        "ON businesses(slug)"
-    )
-
-    # Migration: add reminder_sent column to bookings
-    cursor.execute("PRAGMA table_info(bookings)")
-    booking_columns = [row[1] for row in cursor.fetchall()]
-
-    if "reminder_sent" not in booking_columns:
-        cursor.execute(
-            "ALTER TABLE bookings "
-            "ADD COLUMN reminder_sent INTEGER DEFAULT 0"
-        )
-
-    # Indexes for the columns hit on every booking/AI-context lookup.
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_businesses_owner_telegram_id "
-        "ON businesses(owner_telegram_id)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_bookings_business_date_status "
-        "ON bookings(business_id, booking_date, status)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_bookings_business_customer "
-        "ON bookings(business_id, customer_id)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_customers_business_telegram "
-        "ON customers(business_id, telegram_id)"
-    )
-
-    # Migration: add service_id to working_hours (per-service schedules).
-    # NULL service_id = the business-wide default schedule (existing rows).
-    cursor.execute("PRAGMA table_info(working_hours)")
-    working_hours_columns = [row[1] for row in cursor.fetchall()]
-
-    if "service_id" not in working_hours_columns:
-        cursor.execute(
-            "ALTER TABLE working_hours "
-            "ADD COLUMN service_id INTEGER DEFAULT NULL"
-        )
-
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_working_hours_business_service "
-        "ON working_hours(business_id, service_id, weekday)"
-    )
-
-    # Migration: FAQ as separate items instead of one big faq_text blob.
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS faq_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            business_id INTEGER NOT NULL,
-            question TEXT NOT NULL,
-            answer TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-            FOREIGN KEY (business_id)
-            REFERENCES businesses(id)
-        )
-        """
-    )
-
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_faq_items_business "
-        "ON faq_items(business_id)"
-    )
-
-    # One-time carry-over: businesses that already have an old-style
-    # faq_text and no faq_items yet get it turned into a single item,
-    # so nothing owners already wrote gets lost.
-    cursor.execute(
-        """
-        SELECT id, faq_text FROM businesses
-        WHERE faq_text IS NOT NULL AND TRIM(faq_text) != ''
-        """
-    )
-    businesses_with_faq_text = cursor.fetchall()
-
-    for row in businesses_with_faq_text:
-        cursor.execute(
-            "SELECT COUNT(*) AS count FROM faq_items WHERE business_id = ?",
-            (row["id"],)
-        )
-        has_items = cursor.fetchone()["count"] > 0
-
-        if not has_items:
-            cursor.execute(
-                """
-                INSERT INTO faq_items (business_id, question, answer)
-                VALUES (?, ?, ?)
-                """,
-                (row["id"], "Інформація", row["faq_text"])
-            )
-
-    # -------------------------
-    # ТАРИФИ: pro_until — до коли діє Pro (NULL = Free).
-    # pro_warning_sent_for / pro_expired_notified_for — для якого саме
-    # pro_until уже надіслано попередження / повідомлення про кінець,
-    # щоб не слати повторно.
-    # -------------------------
-
-    cursor.execute("PRAGMA table_info(businesses)")
-    business_columns = {row["name"] for row in cursor.fetchall()}
-
-    for column in (
-        "pro_until", "pro_warning_sent_for", "pro_expired_notified_for"
-    ):
-        if column not in business_columns:
-            cursor.execute(
-                f"ALTER TABLE businesses ADD COLUMN {column} TEXT DEFAULT NULL"
-            )
-
-    # -------------------------
-    # BOT USERS — хто вже колись запускав бота. Потрібно, щоб
-    # сповіщати власника платформи лише про ПЕРШИЙ /start людини.
-    # -------------------------
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS bot_users (
-            telegram_id INTEGER PRIMARY KEY,
-            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            first_business_id INTEGER DEFAULT NULL
-        )
-    """)
-
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_bot_users_first_business "
-        "ON bot_users(first_business_id)"
-    )
-
-    # Уже відомих людей (власників і клієнтів, що існували до появи
-    # таблиці) вважаємо "не новими", щоб після деплою не прийшла
-    # хвиля сповіщень про старих користувачів.
-    cursor.execute("""
-        INSERT OR IGNORE INTO bot_users (telegram_id)
-        SELECT owner_telegram_id FROM businesses
-    """)
-    cursor.execute("""
-        INSERT OR IGNORE INTO bot_users (telegram_id, first_business_id)
-        SELECT telegram_id, MIN(business_id) FROM customers
-        GROUP BY telegram_id
-    """)
-
-    conn.commit()
-    conn.close()
-def set_business_schedule(
-    business_id,
-    weekday,
-    open_time,
-    close_time,
-    is_working=1
-):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        INSERT INTO business_schedule (
-            business_id,
-            weekday,
-            open_time,
-            close_time,
-            is_working
-        )
-        VALUES (?, ?, ?, ?, ?)
-
-        ON CONFLICT(business_id, weekday)
-        DO UPDATE SET
-            open_time = excluded.open_time,
-            close_time = excluded.close_time,
-            is_working = excluded.is_working
-        """,
-        (
-            business_id,
-            weekday,
-            open_time,
-            close_time,
-            is_working
-        )
-    )
-
-    conn.commit()
-    conn.close()
-def get_business_schedule(business_id):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT weekday, open_time, close_time, is_working
-        FROM business_schedule
-        WHERE business_id = ?
-        ORDER BY weekday
-        """,
-        (business_id,)
-    )
-
-    schedule = cursor.fetchall()
+    run_migrations(conn)
     conn.close()
 
-    return schedule
-
-if __name__ == "__main__":
-    init_database()
-    print("✅ BizBot v0.6 database created!")
 
 def set_working_hours(
     business_id,
@@ -552,3 +196,8 @@ def get_own_working_hours(business_id, service_id):
     conn.close()
 
     return rows
+
+
+if __name__ == "__main__":
+    init_database()
+    print("✅ BizBot v0.6 database created!")
