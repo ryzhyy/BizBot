@@ -1,4 +1,3 @@
-import sqlite3
 from datetime import datetime, timedelta
 
 from timeutils import now_local
@@ -82,45 +81,86 @@ def set_customer_phone(business_id, telegram_id, phone):
     conn.close()
 
 
-def is_slot_taken(business_id, booking_date, booking_time):
-    conn = get_connection()
-    cursor = conn.cursor()
+SLOT_STEP_MINUTES = 60
+DEFAULT_DURATION_MINUTES = 60
 
-    cursor.execute(
+
+def _minutes(hhmm):
+    parsed = datetime.strptime(hhmm, "%H:%M")
+    return parsed.hour * 60 + parsed.minute
+
+
+def _service_duration(cursor, service_id):
+    row = cursor.execute(
+        "SELECT duration FROM services WHERE id = ?", (service_id,)
+    ).fetchone()
+    return row["duration"] if row else DEFAULT_DURATION_MINUTES
+
+
+def _busy_intervals(cursor, business_id, booking_date, ignore_booking_id=None):
+    rows = cursor.execute(
         """
-        SELECT id FROM bookings
-        WHERE business_id = ?
-          AND booking_date = ?
-          AND booking_time = ?
-          AND status = 'confirmed'
+        SELECT bookings.booking_time AS time, services.duration AS duration
+        FROM bookings
+        JOIN services ON services.id = bookings.service_id
+        WHERE bookings.business_id = ?
+          AND bookings.booking_date = ?
+          AND bookings.status = 'confirmed'
+          AND bookings.id IS NOT ?
         """,
-        (business_id, booking_date, booking_time)
+        (business_id, booking_date, ignore_booking_id)
+    ).fetchall()
+
+    return [
+        (_minutes(row["time"]), _minutes(row["time"]) + row["duration"])
+        for row in rows
+    ]
+
+
+def _overlaps(start, end, intervals):
+    return any(
+        start < busy_end and busy_start < end
+        for busy_start, busy_end in intervals
     )
 
-    taken = cursor.fetchone() is not None
-    conn.close()
 
-    return taken
+def _slot_conflicts(
+    cursor, business_id, booking_date, booking_time,
+    service_id=None, ignore_booking_id=None
+):
+    # При перенесенні послуга та сама, що й у записі, який переносимо.
+    if service_id is None and ignore_booking_id is not None:
+        row = cursor.execute(
+            "SELECT service_id FROM bookings WHERE id = ?",
+            (ignore_booking_id,)
+        ).fetchone()
+        service_id = row["service_id"] if row else None
 
+    start = _minutes(booking_time)
+    end = start + _service_duration(cursor, service_id)
 
-def get_taken_times(business_id, booking_date):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT booking_time FROM bookings
-        WHERE business_id = ?
-          AND booking_date = ?
-          AND status = 'confirmed'
-        """,
-        (business_id, booking_date)
+    return _overlaps(
+        start, end,
+        _busy_intervals(cursor, business_id, booking_date, ignore_booking_id)
     )
 
-    taken_times = {row["booking_time"] for row in cursor.fetchall()}
-    conn.close()
 
-    return taken_times
+def is_slot_taken(
+    business_id, booking_date, booking_time,
+    service_id=None, ignore_booking_id=None
+):
+    """Чи перетинається час [початок, початок + тривалість послуги)
+    з іншим підтвердженим записом цього бізнесу. ignore_booking_id —
+    запис, який переносимо: сам із собою він не конфліктує."""
+    conn = get_connection()
+
+    try:
+        return _slot_conflicts(
+            conn.cursor(), business_id, booking_date, booking_time,
+            service_id, ignore_booking_id
+        )
+    finally:
+        conn.close()
 
 
 def get_available_times(business_id, date, service_id=None):
@@ -137,34 +177,40 @@ def get_available_times(business_id, date, service_id=None):
     if not day_schedule or not day_schedule["is_open"]:
         return None
 
-    start_time = datetime.strptime(day_schedule["start_time"], "%H:%M")
-    end_time = datetime.strptime(day_schedule["end_time"], "%H:%M")
+    day_start = _minutes(day_schedule["start_time"])
+    day_end = _minutes(day_schedule["end_time"])
 
-    available_times = []
-    current_time = start_time
+    conn = get_connection()
+    cursor = conn.cursor()
+    duration = _service_duration(cursor, service_id)
+    busy = _busy_intervals(cursor, business_id, date)
+    conn.close()
 
-    while current_time < end_time:
-        available_times.append(current_time.strftime("%H:%M"))
-        current_time += timedelta(minutes=60)
-
-    taken_times = get_taken_times(business_id, date)
-
+    # Послуга має завершитись до кінця робочого дня.
     return [
-        t for t in available_times
-        if t not in taken_times
+        f"{start // 60:02d}:{start % 60:02d}"
+        for start in range(day_start, day_end - duration + 1, SLOT_STEP_MINUTES)
+        if not _overlaps(start, start + duration, busy)
     ]
 
 
 def create_booking(business_id, customer_id, service_id, booking_date, booking_time):
-    # is_slot_taken() is checked before this is called, but that
-    # check-then-insert has a race window between two concurrent
-    # bookings for the same slot; idx_bookings_confirmed_slot_unique is
-    # the real guard, so a conflict here means someone else won the
-    # race a moment ago. Returns None in that case instead of raising.
+    """Повертає id запису або None, якщо час уже перетинається з іншим.
+    BEGIN IMMEDIATE одразу бере блокування на запис, тож перевірка
+    перетину і вставка атомарні: два одночасні клієнти не можуть обидва
+    пройти перевірку і записатись на час, що перетинається."""
     conn = get_connection()
+    conn.isolation_level = None
     cursor = conn.cursor()
 
     try:
+        cursor.execute("BEGIN IMMEDIATE")
+
+        if _slot_conflicts(
+            cursor, business_id, booking_date, booking_time, service_id
+        ):
+            return None
+
         cursor.execute(
             """
             INSERT INTO bookings
@@ -173,15 +219,13 @@ def create_booking(business_id, customer_id, service_id, booking_date, booking_t
             """,
             (business_id, customer_id, service_id, booking_date, booking_time)
         )
-        conn.commit()
         booking_id = cursor.lastrowid
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        booking_id = None
-    finally:
-        conn.close()
+        cursor.execute("COMMIT")
 
-    return booking_id
+        return booking_id
+    finally:
+        # Закриття з'єднання з незавершеною транзакцією її відкочує.
+        conn.close()
 
 
 def get_customer_bookings(business_id, customer_id):
@@ -364,14 +408,21 @@ def mark_reminder_sent(booking_id):
 
 
 def reschedule_booking(booking_id, business_id, new_date, new_time):
-    # Same race as create_booking(): is_slot_taken() is re-checked by
-    # the caller right before this, but the unique index is what
-    # actually stops two concurrent reschedules from landing on the
-    # same slot. Returns False on conflict, same as a "no row matched".
+    """Як create_booking(): перевірка перетину і оновлення атомарні.
+    Повертає False, якщо новий час зайнятий або запис не знайдено."""
     conn = get_connection()
+    conn.isolation_level = None
     cursor = conn.cursor()
 
     try:
+        cursor.execute("BEGIN IMMEDIATE")
+
+        if _slot_conflicts(
+            cursor, business_id, new_date, new_time,
+            ignore_booking_id=booking_id
+        ):
+            return False
+
         cursor.execute(
             """
             UPDATE bookings
@@ -380,12 +431,9 @@ def reschedule_booking(booking_id, business_id, new_date, new_time):
             """,
             (new_date, new_time, booking_id, business_id)
         )
-        conn.commit()
         matched = cursor.rowcount > 0
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        matched = False
+        cursor.execute("COMMIT")
+
+        return matched
     finally:
         conn.close()
-
-    return matched

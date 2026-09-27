@@ -1419,7 +1419,7 @@ async def button_handler(
             return
 
         # Important: re-check before saving.
-        if is_slot_taken(booking_business_id, date, time):
+        if is_slot_taken(booking_business_id, date, time, service_id):
 
             await query.message.reply_text(
                 "😔 Цей час щойно зайняли.\n"
@@ -1961,7 +1961,10 @@ async def ai_message(
                 new_date = old_date
 
             # Перевіряємо новий слот
-            if is_slot_taken(business["id"], new_date, new_time):
+            if is_slot_taken(
+                business["id"], new_date, new_time,
+                ignore_booking_id=booking_id
+            ):
                 await update.message.reply_text(
                     f"😕 {new_date} о {new_time} вже зайнято.\n"
                     "Оберіть інший час."
@@ -2019,7 +2022,10 @@ async def ai_message(
                 new_date = pending_reschedule["new_date"]
                 new_time = pending_reschedule["new_time"]
 
-                if is_slot_taken(reschedule_business_id, new_date, new_time):
+                if is_slot_taken(
+                    reschedule_business_id, new_date, new_time,
+                    ignore_booking_id=booking_id
+                ):
                     await update.message.reply_text(
                         "😔 Цей час уже зайнятий. Оберіть інший час."
                     )
@@ -2064,7 +2070,7 @@ async def ai_message(
                 )
                 return
 
-            if is_slot_taken(confirm_business["id"], date, time):
+            if is_slot_taken(confirm_business["id"], date, time, service):
                 await update.message.reply_text(
                     "😔 Цей час уже зайнятий. "
                     "Оберіть інший."
@@ -2141,7 +2147,7 @@ async def ai_message(
                 )
                 return
 
-            if is_slot_taken(choose_time_business["id"], date, time):
+            if is_slot_taken(choose_time_business["id"], date, time, service):
                 await update.message.reply_text(
                     "😔 На жаль, цей час уже зайнятий."
                 )
@@ -2418,7 +2424,9 @@ async def handle_contact(
         return
 
     # Слот могли зайняти, поки клієнт ділився контактом.
-    if is_slot_taken(business_id, pending["date"], pending["time"]):
+    if is_slot_taken(
+        business_id, pending["date"], pending["time"], pending["service_id"]
+    ):
         await update.message.reply_text(
             "😔 Цей час щойно зайняли. Спробуйте ще раз.",
             reply_markup=client_menu_keyboard_for(update.effective_user.id)
