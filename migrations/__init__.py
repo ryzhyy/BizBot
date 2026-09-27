@@ -13,6 +13,8 @@ picked up automatically next time ``run_migrations`` is called.
 
 import importlib
 import pkgutil
+import sqlite3
+from datetime import datetime
 
 
 def _discover_migrations():
@@ -30,6 +32,43 @@ def _discover_migrations():
 
     modules.sort(key=lambda item: item[0])
     return modules
+
+
+def _backup_before_migrating(conn, first_pending_version):
+    """Snapshot the database file next to itself before any pending
+    migration touches it, so a bad deploy can be rolled back by
+    swapping the file. Skipped for a brand-new (empty) database."""
+    cursor = conn.cursor()
+
+    has_data = cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'businesses'"
+    ).fetchone()
+
+    if not has_data:
+        return None
+
+    db_path = next(
+        (row[2] for row in cursor.execute("PRAGMA database_list")
+         if row[1] == "main"),
+        ""
+    )
+
+    if not db_path:
+        return None
+
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = f"{db_path}.pre-{first_pending_version:04d}-{stamp}.bak"
+
+    # The backup API copies a consistent snapshot even in WAL mode,
+    # unlike a plain file copy that could miss un-checkpointed pages.
+    backup_conn = sqlite3.connect(backup_path)
+    try:
+        conn.backup(backup_conn)
+    finally:
+        backup_conn.close()
+
+    print(f"Database backed up to {backup_path} before migrating")
+    return backup_path
 
 
 def run_migrations(conn):
@@ -58,10 +97,15 @@ def run_migrations(conn):
     cursor.execute("SELECT version FROM schema_migrations")
     applied = {row[0] for row in cursor.fetchall()}
 
-    for version, name, module in _discover_migrations():
-        if version in applied:
-            continue
+    pending = [
+        migration for migration in _discover_migrations()
+        if migration[0] not in applied
+    ]
 
+    if pending:
+        _backup_before_migrating(conn, pending[0][0])
+
+    for version, name, module in pending:
         cursor.execute("BEGIN IMMEDIATE")
 
         try:
