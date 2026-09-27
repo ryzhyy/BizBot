@@ -124,17 +124,41 @@ def _overlaps(start, end, intervals):
     )
 
 
-def _slot_conflicts(
-    cursor, business_id, booking_date, booking_time,
-    service_id=None, ignore_booking_id=None
-):
+def _resolve_service_id(cursor, service_id, ignore_booking_id):
     # При перенесенні послуга та сама, що й у записі, який переносимо.
     if service_id is None and ignore_booking_id is not None:
         row = cursor.execute(
             "SELECT service_id FROM bookings WHERE id = ?",
             (ignore_booking_id,)
         ).fetchone()
-        service_id = row["service_id"] if row else None
+        return row["service_id"] if row else None
+
+    return service_id
+
+
+def _day_schedule(business_id, booking_date, service_id):
+    """Рядок графіка на цей день або None, якщо бізнес не працює."""
+    weekday = datetime.strptime(booking_date, "%Y-%m-%d").weekday()
+
+    day_schedule = next(
+        (
+            row for row in get_working_hours(business_id, service_id)
+            if row["weekday"] == weekday
+        ),
+        None
+    )
+
+    if not day_schedule or not day_schedule["is_open"]:
+        return None
+
+    return day_schedule
+
+
+def _slot_conflicts(
+    cursor, business_id, booking_date, booking_time,
+    service_id=None, ignore_booking_id=None
+):
+    service_id = _resolve_service_id(cursor, service_id, ignore_booking_id)
 
     start = _minutes(booking_time)
     end = start + _service_duration(cursor, service_id)
@@ -164,17 +188,9 @@ def is_slot_taken(
 
 
 def get_available_times(business_id, date, service_id=None):
-    booking_date = datetime.strptime(date, "%Y-%m-%d")
-    weekday = booking_date.weekday()
+    day_schedule = _day_schedule(business_id, date, service_id)
 
-    working_hours = get_working_hours(business_id, service_id)
-
-    day_schedule = next(
-        (row for row in working_hours if row["weekday"] == weekday),
-        None
-    )
-
-    if not day_schedule or not day_schedule["is_open"]:
+    if day_schedule is None:
         return None
 
     day_start = _minutes(day_schedule["start_time"])
@@ -186,12 +202,68 @@ def get_available_times(business_id, date, service_id=None):
     busy = _busy_intervals(cursor, business_id, date)
     conn.close()
 
+    # На сьогодні не пропонуємо час, який уже минув.
+    now = now_local()
+    earliest = (
+        now.hour * 60 + now.minute + 1
+        if date == now.strftime("%Y-%m-%d") else day_start
+    )
+
     # Послуга має завершитись до кінця робочого дня.
     return [
         f"{start // 60:02d}:{start % 60:02d}"
         for start in range(day_start, day_end - duration + 1, SLOT_STEP_MINUTES)
-        if not _overlaps(start, start + duration, busy)
+        if start >= earliest and not _overlaps(start, start + duration, busy)
     ]
+
+
+def booking_time_error(
+    business_id, booking_date, booking_time,
+    service_id=None, ignore_booking_id=None
+):
+    """None, якщо на цей час можна записатись, інакше — пояснення для
+    клієнта. На відміну від get_available_times(), не вимагає, щоб час
+    був на сітці слотів: AI може запропонувати, наприклад, 10:30."""
+    start_dt = datetime.strptime(
+        f"{booking_date} {booking_time}", "%Y-%m-%d %H:%M"
+    )
+
+    if start_dt <= now_local():
+        return "⏰ Цей час уже минув. Оберіть, будь ласка, інший."
+
+    conn = get_connection()
+
+    try:
+        cursor = conn.cursor()
+        service_id = _resolve_service_id(cursor, service_id, ignore_booking_id)
+
+        day_schedule = _day_schedule(business_id, booking_date, service_id)
+
+        if day_schedule is None:
+            return "😔 У цей день ми не працюємо. Оберіть, будь ласка, інший день."
+
+        start = _minutes(booking_time)
+        duration = _service_duration(cursor, service_id)
+
+        if (
+            start < _minutes(day_schedule["start_time"])
+            or start + duration > _minutes(day_schedule["end_time"])
+        ):
+            return (
+                f"🕒 Цього дня ми працюємо з {day_schedule['start_time']} "
+                f"до {day_schedule['end_time']}, а послуга триває "
+                f"{duration} хв. Оберіть, будь ласка, інший час."
+            )
+
+        if _overlaps(
+            start, start + duration,
+            _busy_intervals(cursor, business_id, booking_date, ignore_booking_id)
+        ):
+            return "😔 Цей час уже зайнятий. Оберіть, будь ласка, інший."
+
+        return None
+    finally:
+        conn.close()
 
 
 def create_booking(business_id, customer_id, service_id, booking_date, booking_time):
