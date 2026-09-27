@@ -5,6 +5,7 @@ from plans import get_visible_services, is_pro
 from database import (
     get_connection,
     get_working_hours,
+    get_master_working_hours,
     get_own_working_hours,
     DAY_NAMES,
 )
@@ -136,6 +137,20 @@ def get_service_by_id(service_id, business_id):
     return service
 
 
+def _service_master(business_id, service_id):
+    conn = get_connection()
+    row = conn.execute(
+        """
+        SELECT masters.id, masters.name FROM services
+        JOIN masters ON masters.id = services.master_id
+        WHERE services.id = ? AND services.business_id = ?
+        """,
+        (service_id, business_id)
+    ).fetchone()
+    conn.close()
+    return row
+
+
 def build_business_prompt(business_id):
     conn = get_connection()
     cursor = conn.cursor()
@@ -190,6 +205,14 @@ def build_business_prompt(business_id):
             own_hours = get_own_working_hours(
                 business_id, service["id"]
             )
+            master = _service_master(business_id, service["id"])
+            master_hours = (
+                get_master_working_hours(business_id, master["id"])
+                if master and not own_hours else []
+            )
+
+            if master:
+                services_text += f"  Майстер: {master['name']}\n"
 
             if own_hours:
                 services_text += (
@@ -197,6 +220,13 @@ def build_business_prompt(business_id):
                 )
                 services_text += format_hours_lines(
                     own_hours, prefix="  "
+                )
+            elif master_hours:
+                services_text += (
+                    f"  (графік майстра {master['name']}:)\n"
+                )
+                services_text += format_hours_lines(
+                    master_hours, prefix="  "
                 )
     else:
         services_text = "- Послуги ще не додані\n"
