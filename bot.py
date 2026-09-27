@@ -51,6 +51,7 @@ from bookings import (
     get_or_create_customer,
     set_customer_phone,
     is_slot_taken,
+    booking_time_error,
     is_daily_free_limit_reached,
     get_available_times,
     create_booking,
@@ -1962,15 +1963,14 @@ async def ai_message(
             if not new_date:
                 new_date = old_date
 
-            # Перевіряємо новий слот
-            if is_slot_taken(
+            # Перевіряємо новий слот: робочі години, минулий час, зайнятість
+            slot_error = booking_time_error(
                 business["id"], new_date, new_time,
                 ignore_booking_id=booking_id
-            ):
-                await update.message.reply_text(
-                    f"😕 {new_date} о {new_time} вже зайнято.\n"
-                    "Оберіть інший час."
-                )
+            )
+
+            if slot_error:
+                await update.message.reply_text(slot_error)
                 return
 
             # Запам'ятовуємо перенесення до підтвердження
@@ -2024,13 +2024,13 @@ async def ai_message(
                 new_date = pending_reschedule["new_date"]
                 new_time = pending_reschedule["new_time"]
 
-                if is_slot_taken(
+                slot_error = booking_time_error(
                     reschedule_business_id, new_date, new_time,
                     ignore_booking_id=booking_id
-                ):
-                    await update.message.reply_text(
-                        "😔 Цей час уже зайнятий. Оберіть інший час."
-                    )
+                )
+
+                if slot_error:
+                    await update.message.reply_text(slot_error)
                     return
 
                 rescheduled = reschedule_booking(
@@ -2072,11 +2072,12 @@ async def ai_message(
                 )
                 return
 
-            if is_slot_taken(confirm_business["id"], date, time, service):
-                await update.message.reply_text(
-                    "😔 Цей час уже зайнятий. "
-                    "Оберіть інший."
-                )
+            slot_error = booking_time_error(
+                confirm_business["id"], date, time, service
+            )
+
+            if slot_error:
+                await update.message.reply_text(slot_error)
                 return
 
             confirm_service = get_visible_service_by_id(
@@ -2149,10 +2150,12 @@ async def ai_message(
                 )
                 return
 
-            if is_slot_taken(choose_time_business["id"], date, time, service):
-                await update.message.reply_text(
-                    "😔 На жаль, цей час уже зайнятий."
-                )
+            slot_error = booking_time_error(
+                choose_time_business["id"], date, time, service
+            )
+
+            if slot_error:
+                await update.message.reply_text(slot_error)
                 return
 
             choose_time_service = get_visible_service_by_id(
