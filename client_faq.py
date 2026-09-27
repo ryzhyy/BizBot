@@ -14,7 +14,11 @@ from html import escape as html_escape
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler
 
-from business_context import get_business_by_id, get_faq_items
+from business_context import (
+    get_business_by_id,
+    get_business_by_owner,
+    get_faq_items,
+)
 from plans import is_pro
 
 
@@ -105,8 +109,20 @@ async def client_faq_callback(update, context):
     query = update.callback_query
 
     _, business_id, target = query.data.split("_")
+    business_id = int(business_id)
 
-    business = get_business_by_id(int(business_id))
+    # business_id приходить із кнопки, тож його можна підробити:
+    # показуємо FAQ лише бізнесу, до якого людина зараз підключена
+    # (як клієнт) або яким володіє.
+    owned = get_business_by_owner(query.from_user.id)
+    allowed_ids = {
+        context.user_data.get("client_business_id"),
+        owned["id"] if owned else None,
+    }
+
+    business = (
+        get_business_by_id(business_id) if business_id in allowed_ids else None
+    )
 
     # На callback можна відповісти лише один раз — тому спершу
     # перевіряємо бізнес, а тоді відповідаємо.

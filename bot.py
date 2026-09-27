@@ -637,6 +637,21 @@ async def finalize_booking(
 ):
     user = update.effective_user
 
+    # Послуга має бути з цього ж бізнесу й доступна клієнтам.
+    if not business or not get_visible_service_by_id(
+        service_id, business["id"]
+    ):
+        clear_booking_flow_state(context)
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=(
+                "⚠️ Сесію бронювання втрачено. "
+                "Почніть заново через «Записатися»."
+            ),
+            reply_markup=client_menu_keyboard_for(user.id)
+        )
+        return
+
     # Повторна перевірка ліміту Free саме перед збереженням: поки клієнт
     # обирав час, день міг уже заповнитись іншим записом.
     if is_daily_free_limit_reached(business["id"], date):
@@ -717,6 +732,9 @@ BOOKING_FLOW_KEYS = [
     "date",
     "time",
     "pending_phone_booking",
+    "pending_cancel_ids",
+    "pending_cancel_business_id",
+    "pending_reschedule",
     "ai_state",
 ]
 
@@ -869,6 +887,11 @@ async def start(
             )
             return
 
+        # Незавершений запис/скасування/перенесення з іншого бізнесу не
+        # повинні продовжитися в цьому: інакше, наприклад, послуга
+        # бізнесу A потрапила б у запис бізнесу B.
+        clear_booking_flow_state(context)
+
         # Запам'ятовуємо, до якого бізнесу
         # підключений цей клієнт
         context.user_data["client_business_id"] = business["id"]
@@ -883,6 +906,7 @@ async def start(
     # Звичайний /start без business ID —
     # прибираємо попередній client-контекст, якщо він був
     context.user_data.pop("client_business_id", None)
+    clear_booking_flow_state(context)
 
     owned_business = get_business_by_owner(update.effective_user.id)
 
@@ -1571,7 +1595,7 @@ async def button_handler(
             )
             return
 
-        mark_booking_completed(booking_id)
+        mark_booking_completed(booking_id, business["id"])
 
         client_notified = True
 
@@ -2104,14 +2128,9 @@ async def ai_message(
                 )
                 return
 
-            slot_error = booking_time_error(
-                confirm_business["id"], date, time, service
-            )
-
-            if slot_error:
-                await update.message.reply_text(slot_error)
-                return
-
+            # Спершу — чи послуга з цього бізнесу, і лише тоді час
+            # (інакше перевірка йшла б за тривалістю й майстром
+            # послуги іншого бізнесу).
             confirm_service = get_visible_service_by_id(
                 service, confirm_business["id"]
             )
@@ -2121,6 +2140,14 @@ async def ai_message(
                     "⚠️ Не вдалося знайти обрану послугу. "
                     "Спробуйте ще раз."
                 )
+                return
+
+            slot_error = booking_time_error(
+                confirm_business["id"], date, time, confirm_service["id"]
+            )
+
+            if slot_error:
+                await update.message.reply_text(slot_error)
                 return
 
             if not await require_customer_phone(
@@ -2182,14 +2209,9 @@ async def ai_message(
                 )
                 return
 
-            slot_error = booking_time_error(
-                choose_time_business["id"], date, time, service
-            )
-
-            if slot_error:
-                await update.message.reply_text(slot_error)
-                return
-
+            # Спершу — чи послуга з цього бізнесу, і лише тоді час
+            # (інакше перевірка йшла б за тривалістю й майстром
+            # послуги іншого бізнесу).
             choose_time_service = get_visible_service_by_id(
                 service, choose_time_business["id"]
             )
@@ -2199,6 +2221,14 @@ async def ai_message(
                     "⚠️ Не вдалося знайти обрану послугу. "
                     "Спробуйте ще раз."
                 )
+                return
+
+            slot_error = booking_time_error(
+                choose_time_business["id"], date, time, choose_time_service["id"]
+            )
+
+            if slot_error:
+                await update.message.reply_text(slot_error)
                 return
 
             state["time"] = time
