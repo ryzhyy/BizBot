@@ -286,6 +286,14 @@ def booking_time_error(
         conn.close()
 
 
+def _belongs_to_business(cursor, table, row_id, business_id):
+    extra = " AND active = 1" if table == "services" else ""
+    return cursor.execute(
+        f"SELECT 1 FROM {table} WHERE id = ? AND business_id = ?{extra}",
+        (row_id, business_id)
+    ).fetchone() is not None
+
+
 def _confirmed_count(cursor, business_id, booking_date):
     return cursor.execute(
         """
@@ -311,6 +319,16 @@ def create_booking(business_id, customer_id, service_id, booking_date, booking_t
 
     try:
         cursor.execute("BEGIN IMMEDIATE")
+
+        # Послуга й клієнт мають належати саме цьому бізнесу (інакше,
+        # напр. через застарілий стан після переходу між бізнесами,
+        # запис бізнесу B отримав би послугу бізнесу A).
+        if not _belongs_to_business(
+            cursor, "services", service_id, business_id
+        ) or not _belongs_to_business(
+            cursor, "customers", customer_id, business_id
+        ):
+            return None
 
         if not pro and _confirmed_count(
             cursor, business_id, booking_date
@@ -445,7 +463,7 @@ def cancel_booking(booking_id, business_id):
     return matched
 
 
-def mark_booking_completed(booking_id):
+def mark_booking_completed(booking_id, business_id):
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -453,9 +471,9 @@ def mark_booking_completed(booking_id):
         """
         UPDATE bookings
         SET status = 'completed'
-        WHERE id = ?
+        WHERE id = ? AND business_id = ?
         """,
-        (booking_id,)
+        (booking_id, business_id)
     )
 
     conn.commit()
