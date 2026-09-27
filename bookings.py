@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import datetime, timedelta
 
 from database import get_connection, get_working_hours
@@ -30,8 +31,24 @@ def get_customer(business_id, telegram_id):
 
 
 def get_or_create_customer(business_id, telegram_id, name=None):
+    # INSERT ... ON CONFLICT DO UPDATE instead of select-then-insert:
+    # two concurrent /start calls for the same Telegram user used to be
+    # able to both see "no row yet" and both insert, creating duplicate
+    # customers; the UNIQUE(business_id, telegram_id) constraint plus
+    # this single statement make the read-then-write atomic.
     conn = get_connection()
     cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO customers (business_id, telegram_id, name)
+        VALUES (?, ?, ?)
+        ON CONFLICT(business_id, telegram_id) DO UPDATE SET
+            name = COALESCE(excluded.name, customers.name)
+        """,
+        (business_id, telegram_id, name)
+    )
+    conn.commit()
 
     cursor.execute(
         """
@@ -40,28 +57,7 @@ def get_or_create_customer(business_id, telegram_id, name=None):
         """,
         (business_id, telegram_id)
     )
-
-    row = cursor.fetchone()
-
-    if row:
-        customer_id = row["id"]
-
-        if name:
-            cursor.execute(
-                "UPDATE customers SET name = ? WHERE id = ?",
-                (name, customer_id)
-            )
-            conn.commit()
-    else:
-        cursor.execute(
-            """
-            INSERT INTO customers (business_id, telegram_id, name)
-            VALUES (?, ?, ?)
-            """,
-            (business_id, telegram_id, name)
-        )
-        conn.commit()
-        customer_id = cursor.lastrowid
+    customer_id = cursor.fetchone()["id"]
 
     conn.close()
 
@@ -159,21 +155,30 @@ def get_available_times(business_id, date, service_id=None):
 
 
 def create_booking(business_id, customer_id, service_id, booking_date, booking_time):
+    # is_slot_taken() is checked before this is called, but that
+    # check-then-insert has a race window between two concurrent
+    # bookings for the same slot; idx_bookings_confirmed_slot_unique is
+    # the real guard, so a conflict here means someone else won the
+    # race a moment ago. Returns None in that case instead of raising.
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        """
-        INSERT INTO bookings
+    try:
+        cursor.execute(
+            """
+            INSERT INTO bookings
+                (business_id, customer_id, service_id, booking_date, booking_time)
+            VALUES (?, ?, ?, ?, ?)
+            """,
             (business_id, customer_id, service_id, booking_date, booking_time)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (business_id, customer_id, service_id, booking_date, booking_time)
-    )
-
-    conn.commit()
-    booking_id = cursor.lastrowid
-    conn.close()
+        )
+        conn.commit()
+        booking_id = cursor.lastrowid
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        booking_id = None
+    finally:
+        conn.close()
 
     return booking_id
 
@@ -358,20 +363,28 @@ def mark_reminder_sent(booking_id):
 
 
 def reschedule_booking(booking_id, business_id, new_date, new_time):
+    # Same race as create_booking(): is_slot_taken() is re-checked by
+    # the caller right before this, but the unique index is what
+    # actually stops two concurrent reschedules from landing on the
+    # same slot. Returns False on conflict, same as a "no row matched".
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        """
-        UPDATE bookings
-        SET booking_date = ?, booking_time = ?
-        WHERE id = ? AND business_id = ?
-        """,
-        (new_date, new_time, booking_id, business_id)
-    )
-
-    conn.commit()
-    matched = cursor.rowcount > 0
-    conn.close()
+    try:
+        cursor.execute(
+            """
+            UPDATE bookings
+            SET booking_date = ?, booking_time = ?
+            WHERE id = ? AND business_id = ?
+            """,
+            (new_date, new_time, booking_id, business_id)
+        )
+        conn.commit()
+        matched = cursor.rowcount > 0
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        matched = False
+    finally:
+        conn.close()
 
     return matched

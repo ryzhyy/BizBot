@@ -8,6 +8,8 @@ from telegram.ext import (
     filters,
 )
 
+import sqlite3
+
 from database import get_connection, generate_unique_slug
 from owner_events import on_setup_started, on_business_created
 
@@ -99,24 +101,38 @@ async def setup_city(
 
     slug = generate_unique_slug(cursor, name)
 
-    cursor.execute(
-        """
-        INSERT INTO businesses
-        (owner_telegram_id, name, category, city, slug)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (
-            owner_id,
-            name,
-            category,
-            city,
-            slug
+    try:
+        cursor.execute(
+            """
+            INSERT INTO businesses
+            (owner_telegram_id, name, category, city, slug)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                owner_id,
+                name,
+                category,
+                city,
+                slug
+            )
         )
-    )
+        business_id = cursor.lastrowid
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # Two /setup flows for the same owner finished at the same
+        # time; the UNIQUE(owner_telegram_id) constraint let only one
+        # through, so this one has nothing to create.
+        conn.rollback()
+        conn.close()
 
-    business_id = cursor.lastrowid
+        context.user_data.pop("setup_name", None)
+        context.user_data.pop("setup_category", None)
 
-    conn.commit()
+        await update.message.reply_text(
+            "⚠️ У вас уже є бізнес."
+        )
+        return ConversationHandler.END
+
     conn.close()
 
     context.user_data.pop("setup_name", None)
