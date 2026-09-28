@@ -1611,17 +1611,50 @@ async def button_handler(
             )
         )
 
-        cancelled = cancel_booking(booking_id, business["id"])
+        # Деталі беремо до скасування — вони потрібні для листа клієнту.
+        booking = get_booking_with_customer(booking_id, business["id"])
 
-        if not cancelled:
+        if not cancel_booking(booking_id, business["id"]):
             await query.message.reply_text(
-                "⚠️ Цей запис не знайдено у вашому бізнесі."
+                "⚠️ Цей запис не знайдено у вашому бізнесі "
+                "або його вже скасовано."
             )
             return
 
-        await query.edit_message_text(
-            f"🗑 Запис #{booking_id} скасовано."
-        )
+        client_notified = False
+
+        if booking:
+            emoji = service_title(booking["service"], business["category"])
+
+            try:
+                await context.bot.send_message(
+                    chat_id=booking["customer_telegram_id"],
+                    text=(
+                        f"❌ «{business['name']}» скасував ваш запис\n\n"
+                        f"{emoji}\n"
+                        f"{master_line(booking['master'])}"
+                        f"📅 {booking['date']}\n"
+                        f"🕒 {booking['time']}\n\n"
+                        "Вибачте за незручності. Щоб обрати інший час, "
+                        "натисніть «✂️ Записатися»."
+                    )
+                )
+                client_notified = True
+            except Exception as error:
+                logger.warning(
+                    "Booking-cancelled client notification failed: %s", error
+                )
+
+        if client_notified:
+            await query.edit_message_text(
+                f"🗑 Запис #{booking_id} скасовано, клієнта сповіщено."
+            )
+        else:
+            await query.edit_message_text(
+                f"🗑 Запис #{booking_id} скасовано.\n"
+                "⚠️ Не вдалося сповістити клієнта "
+                "(можливо, заблокував бота)."
+            )
 
     # ADMIN COMPLETE
 
@@ -1663,6 +1696,7 @@ async def button_handler(
                 text=(
                     "✅ Роботу виконано!\n\n"
                     f"{emoji}\n"
+                    f"{master_line(booking['master'])}"
                     f"📅 {booking['date']}\n"
                     f"🕒 {booking['time']}\n\n"
                     "Дякуємо, що скористались нашими послугами! "

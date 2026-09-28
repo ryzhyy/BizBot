@@ -430,10 +430,13 @@ def get_booking_with_customer(booking_id, business_id):
                customers.telegram_id AS customer_telegram_id,
                services.name AS service,
                bookings.booking_date AS date,
-               bookings.booking_time AS time
+               bookings.booking_time AS time,
+               bookings.status AS status,
+               masters.name AS master
         FROM bookings
         JOIN customers ON customers.id = bookings.customer_id
         JOIN services ON services.id = bookings.service_id
+        LEFT JOIN masters ON masters.id = services.master_id
         WHERE bookings.id = ? AND bookings.business_id = ?
         """,
         (booking_id, business_id)
@@ -446,6 +449,9 @@ def get_booking_with_customer(booking_id, business_id):
 
 
 def cancel_booking(booking_id, business_id):
+    """True, якщо запис був активним і тепер скасований. Уже скасований
+    чи виконаний запис не чіпаємо — інакше повторне натискання кнопки
+    вдруге сповістило б клієнта."""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -453,7 +459,7 @@ def cancel_booking(booking_id, business_id):
         """
         UPDATE bookings
         SET status = 'cancelled'
-        WHERE id = ? AND business_id = ?
+        WHERE id = ? AND business_id = ? AND status = 'confirmed'
         """,
         (booking_id, business_id)
     )
