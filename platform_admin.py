@@ -12,7 +12,7 @@ import os
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, CommandHandler
 
-from database import get_working_hours, DAY_NAMES
+from database import DAY_NAMES, format_day_hours, get_working_hours
 from business_context import (
     count_businesses,
     get_businesses_page,
@@ -67,12 +67,7 @@ def _format_hours(business_id):
     lines = ""
 
     for row in rows:
-        day = DAY_NAMES[row["weekday"]]
-
-        if row["is_open"]:
-            lines += f"  {day}: {row['start_time']}–{row['end_time']}\n"
-        else:
-            lines += f"  {day}: вихідний\n"
+        lines += f"  {DAY_NAMES[row['weekday']]}: {format_day_hours(row)}\n"
 
     return lines
 

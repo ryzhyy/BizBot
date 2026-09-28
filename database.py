@@ -94,10 +94,13 @@ def set_working_hours(
     end_time,
     is_open=1,
     service_id=None,
-    master_id=None
+    master_id=None,
+    break_start=None,
+    break_end=None
 ):
     """Save one weekday of one schedule: a service's (service_id), a
-    master's (master_id) or, with neither, the business default."""
+    master's (master_id) or, with neither, the business default.
+    break_start/break_end: optional break inside the day."""
     scope, scope_params = _scope_filter(service_id, master_id)
 
     conn = get_connection()
@@ -114,13 +117,13 @@ def set_working_hours(
         """
         INSERT INTO working_hours (
             business_id, weekday, start_time, end_time, is_open,
-            service_id, master_id
+            service_id, master_id, break_start, break_end
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             business_id, weekday, start_time, end_time, is_open,
-            service_id, master_id
+            service_id, master_id, break_start, break_end
         )
     )
 
@@ -132,7 +135,8 @@ def _schedule_rows(cursor, business_id, service_id=None, master_id=None):
     scope, scope_params = _scope_filter(service_id, master_id)
     return cursor.execute(
         f"""
-        SELECT weekday, start_time, end_time, is_open
+        SELECT weekday, start_time, end_time, is_open,
+               break_start, break_end
         FROM working_hours
         WHERE business_id = ? AND {scope}
         ORDER BY weekday
@@ -184,22 +188,23 @@ def get_own_working_hours(business_id, service_id):
     загальний графік бізнесу. Порожній список = власного графіка
     немає (get_working_hours() для цієї послуги поверне fallback)."""
     conn = get_connection()
-    cursor = conn.cursor()
+    try:
+        return _schedule_rows(conn.cursor(), business_id, service_id=service_id)
+    finally:
+        conn.close()
 
-    cursor.execute(
-        """
-        SELECT weekday, start_time, end_time, is_open
-        FROM working_hours
-        WHERE business_id = ? AND service_id = ?
-        ORDER BY weekday
-        """,
-        (business_id, service_id)
-    )
 
-    rows = cursor.fetchall()
-    conn.close()
+def format_day_hours(row):
+    """'09:00–18:00 (перерва 13:00–14:00)', '09:00–18:00' or 'вихідний'."""
+    if not row["is_open"]:
+        return "вихідний"
 
-    return rows
+    text = f"{row['start_time']}–{row['end_time']}"
+
+    if row["break_start"] and row["break_end"]:
+        text += f" (перерва {row['break_start']}–{row['break_end']})"
+
+    return text
 
 
 if __name__ == "__main__":

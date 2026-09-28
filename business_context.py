@@ -7,6 +7,7 @@ from database import (
     get_working_hours,
     get_master_working_hours,
     get_own_working_hours,
+    format_day_hours,
     DAY_NAMES,
 )
 
@@ -101,11 +102,13 @@ def get_business_services(business_id):
 
     cursor.execute(
         """
-        SELECT id, name, price, duration
+        SELECT services.id, services.name, services.price,
+               services.duration, masters.name AS master_name
         FROM services
-        WHERE business_id = ?
-          AND active = 1
-        ORDER BY id
+        LEFT JOIN masters ON masters.id = services.master_id
+        WHERE services.business_id = ?
+          AND services.active = 1
+        ORDER BY services.id
         """,
         (business_id,)
     )
@@ -122,11 +125,13 @@ def get_service_by_id(service_id, business_id):
 
     cursor.execute(
         """
-        SELECT id, name, price, duration
+        SELECT services.id, services.name, services.price,
+               services.duration, masters.name AS master_name
         FROM services
-        WHERE id = ?
-          AND business_id = ?
-          AND active = 1
+        LEFT JOIN masters ON masters.id = services.master_id
+        WHERE services.id = ?
+          AND services.business_id = ?
+          AND services.active = 1
         """,
         (service_id, business_id)
     )
@@ -181,14 +186,10 @@ def build_business_prompt(business_id):
         lines = ""
 
         for row in rows:
-            day = DAY_NAMES[row["weekday"]]
-            if row["is_open"]:
-                lines += (
-                    f"{prefix}{day}: "
-                    f"{row['start_time']}–{row['end_time']}\n"
-                )
-            else:
-                lines += f"{prefix}{day}: вихідний\n"
+            lines += (
+                f"{prefix}{DAY_NAMES[row['weekday']]}: "
+                f"{format_day_hours(row)}\n"
+            )
 
         return lines
 

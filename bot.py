@@ -27,7 +27,7 @@ from timeutils import now_local
 from setup import get_setup_handler
 from schedule import get_schedule_handler
 from database import DB_NAME, init_database, get_working_hours
-from service_emoji import get_service_emoji
+from service_emoji import service_title
 
 from business_context import (
     build_business_prompt,
@@ -50,6 +50,7 @@ from contact_settings import (
 )
 from location_settings import get_setlocation_handler
 from platform_admin import get_platform_handlers, OWNER_TELEGRAM_ID
+from demo_data import get_demo_handler
 from client_faq import build_faq_view, get_client_faq_handler
 from error_reporting import error_handler, report_error
 from backups import BACKUP_TIME, send_daily_backup
@@ -281,8 +282,11 @@ async def show_business_services(
     text = f"🧾 Послуги «{business['name']}»:\n\n"
 
     for service in services:
-        emoji = get_service_emoji(service['name'], business['category'])
-        text += f"{emoji} {service['name']} — {service['price']} грн\n"
+        emoji = service_title(service['name'], business['category'])
+        text += (
+            f"{emoji} — {service['price']} грн\n"
+            f"{master_line(service_master(service))}"
+        )
 
     await update.message.reply_text(text)
 
@@ -305,8 +309,8 @@ async def show_my_business(
 
     if services:
         services_text = "\n".join(
-            f"{get_service_emoji(service['name'], business['category'])} "
-            f"{service['name']} — {service['price']} грн"
+            f"{service_title(service['name'], business['category'])}"
+            f" — {service['price']} грн"
             + (" 🔒 приховано (Free)" if service["id"] in hidden_ids else "")
             for service in services
         )
@@ -596,7 +600,7 @@ async def notify_owner_of_booking(
 
     phone_line = f"📱 {customer_phone}\n" if customer_phone else ""
     master_line = f"👤 Майстер: {master_name}\n" if master_name else ""
-    emoji = get_service_emoji(service_name, business["category"])
+    emoji = service_title(service_name, business["category"])
 
     try:
         await context.bot.send_message(
@@ -605,7 +609,7 @@ async def notify_owner_of_booking(
                 "🔔 Новий запис!\n\n"
                 f"👤 {customer_name}\n"
                 f"{phone_line}"
-                f"{emoji} {service_name}\n"
+                f"{emoji}\n"
                 f"{master_line}"
                 f"📅 {date}\n"
                 f"🕒 {time}"
@@ -770,11 +774,26 @@ def clear_booking_flow_state(context):
         context.user_data.pop(key, None)
 
 
+def service_master(service):
+    """Ім'я майстра послуги (рядок з LEFT JOIN masters) або None."""
+    return service["master_name"] if "master_name" in service.keys() else None
+
+
+def master_line(name):
+    """Рядок «👤 Майстер: …» для клієнтських повідомлень; без майстра — порожньо."""
+    return f"👤 Майстер: {name}\n" if name else ""
+
+
+def master_suffix(name):
+    return f" · {name}" if name else ""
+
+
 def build_service_choice_keyboard(services, business_category=None):
     keyboard = [
         [InlineKeyboardButton(
-            f"{get_service_emoji(service['name'], business_category)} "
-            f"{service['name']} — {service['price']} грн",
+            f"{service_title(service['name'], business_category)}"
+            f" — {service['price']} грн"
+            f"{master_suffix(service_master(service))}",
             callback_data=f"service_{service['id']}"
         )]
         for service in services
@@ -1094,12 +1113,13 @@ async def my_bookings_command(
     text = "📋 Ваші записи:\n\n"
 
     for booking in bookings:
-        booking_id, service, date, time = booking
-        emoji = get_service_emoji(service, business["category"])
+        booking_id, service, date, time, master = booking
+        emoji = service_title(service, business["category"])
 
         text += (
             f"#{booking_id}\n"
-            f"{emoji} {service}\n"
+            f"{emoji}\n"
+            f"{master_line(master)}"
             f"📅 {date}\n"
             f"🕐 {time}\n\n"
         )
@@ -1140,7 +1160,7 @@ async def admin(
     for booking in bookings:
 
         booking_id, client_name, service, date, time, master = booking
-        emoji = get_service_emoji(service, business["category"])
+        emoji = service_title(service, business["category"])
         master_line = f"👤 Майстер: {master}\n" if master else ""
 
         keyboard = [[
@@ -1157,7 +1177,7 @@ async def admin(
         await update.message.reply_text(
             f"🆔 Запис #{booking_id}\n\n"
             f"👤 {client_name}\n"
-            f"{emoji} {service}\n"
+            f"{emoji}\n"
             f"{master_line}"
             f"📅 {date}\n"
             f"🕐 {time}",
@@ -1258,11 +1278,12 @@ async def button_handler(
         text = f"🧾 Послуги «{business['name']}»:\n\n"
 
         for service in services:
-            emoji = get_service_emoji(
+            emoji = service_title(
                 service['name'], business['category']
             )
             text += (
-                f"{emoji} {service['name']} — {service['price']} грн\n"
+                f"{emoji} — {service['price']} грн\n"
+                f"{master_line(service_master(service))}"
             )
 
         await query.message.reply_text(text)
@@ -1296,12 +1317,13 @@ async def button_handler(
 
         for booking in bookings:
 
-            booking_id, service, date, time = booking
-            emoji = get_service_emoji(service, business["category"])
+            booking_id, service, date, time, master = booking
+            emoji = service_title(service, business["category"])
 
             text += (
                 f"#{booking_id}\n"
-                f"{emoji} {service}\n"
+                f"{emoji}\n"
+                f"{master_line(master)}"
                 f"📅 {date}\n"
                 f"🕐 {time}\n\n"
             )
@@ -1366,13 +1388,14 @@ async def button_handler(
         context.user_data["service_name"] = service["name"]
 
         service_business = get_business_by_id(booking_business_id)
-        emoji = get_service_emoji(
+        emoji = service_title(
             service["name"],
             service_business["category"] if service_business else None
         )
 
         await query.message.reply_text(
-            f"{emoji} {service['name']}\n\n"
+            f"{emoji}\n"
+            f"{master_line(service_master(service))}\n"
             "📅 Оберіть зручний день:",
             reply_markup=build_date_choice_keyboard(
                 booking_business_id, service["id"]
@@ -1454,9 +1477,13 @@ async def button_handler(
             get_business_by_id(time_business_id)
             if time_business_id else None
         )
-        emoji = get_service_emoji(
+        emoji = service_title(
             service_name,
             time_business["category"] if time_business else None
+        )
+
+        time_master = get_service_master_name(
+            context.user_data.get("service_id")
         )
 
         keyboard = [
@@ -1472,7 +1499,8 @@ async def button_handler(
 
         await query.message.reply_text(
             "📋 Ваш запис:\n\n"
-            f"{emoji} {service_name}\n"
+            f"{emoji}\n"
+            f"{master_line(time_master)}"
             f"📅 {date}\n"
             f"🕐 {selected_time}\n\n"
             "Підтверджуєте?",
@@ -1528,7 +1556,7 @@ async def button_handler(
             return
 
         booking_business = get_business_by_id(booking_business_id)
-        emoji = get_service_emoji(
+        emoji = service_title(
             service_name,
             booking_business["category"] if booking_business else None
         )
@@ -1543,7 +1571,8 @@ async def button_handler(
             time,
             success_text=(
                 "✅ Запис підтверджено!\n\n"
-                f"{emoji} {service_name}\n"
+                f"{emoji}\n"
+                f"{master_line(get_service_master_name(service_id))}"
                 f"📅 {date}\n"
                 f"🕐 {time}\n\n"
                 "До зустрічі! 👋"
@@ -1626,14 +1655,14 @@ async def button_handler(
 
         client_notified = True
 
-        emoji = get_service_emoji(booking["service"], business["category"])
+        emoji = service_title(booking["service"], business["category"])
 
         try:
             await context.bot.send_message(
                 chat_id=booking["customer_telegram_id"],
                 text=(
                     "✅ Роботу виконано!\n\n"
-                    f"{emoji} {booking['service']}\n"
+                    f"{emoji}\n"
                     f"📅 {booking['date']}\n"
                     f"🕒 {booking['time']}\n\n"
                     "Дякуємо, що скористались нашими послугами! "
@@ -1864,7 +1893,7 @@ async def ai_message(
             active_bookings = []
 
             for booking in bookings:
-                booking_id, booking_service, booking_date, booking_time = booking
+                booking_id, booking_service, booking_date, booking_time, booking_master = booking
 
                 try:
                     booking_dt = datetime.strptime(
@@ -1887,11 +1916,12 @@ async def ai_message(
             text = "📋 Ваші записи:\n\n"
 
             for booking in active_bookings:
-                booking_id, booking_service, booking_date, booking_time = booking
-                emoji = get_service_emoji(booking_service, business["category"])
+                booking_id, booking_service, booking_date, booking_time, booking_master = booking
+                emoji = service_title(booking_service, business["category"])
 
                 text += (
-                    f"{emoji} {booking_service}\n"
+                    f"{emoji}\n"
+                    f"{master_line(booking_master)}"
                     f"📅 {booking_date}\n"
                     f"🕒 {booking_time}\n\n"
                 )
@@ -1964,11 +1994,12 @@ async def ai_message(
             text = "🗑 Знайдено записи для скасування:\n\n"
 
             for booking in bookings:
-                booking_id, booking_service, booking_date, booking_time = booking
-                emoji = get_service_emoji(booking_service, business["category"])
+                booking_id, booking_service, booking_date, booking_time, booking_master = booking
+                emoji = service_title(booking_service, business["category"])
 
                 text += (
-                    f"{emoji} {booking_service}\n"
+                    f"{emoji}\n"
+                    f"{master_line(booking_master)}"
                     f"📅 {booking_date}\n"
                     f"🕒 {booking_time}\n\n"
                 )
@@ -2013,7 +2044,7 @@ async def ai_message(
             matching_bookings = []
 
             for booking in bookings:
-                booking_id, booking_service, booking_date, booking_time = booking
+                booking_id, booking_service, booking_date, booking_time, booking_master = booking
 
                 if date and booking_date != date:
                     continue
@@ -2042,6 +2073,7 @@ async def ai_message(
             old_service = booking[1]
             old_date = booking[2]
             old_time = booking[3]
+            old_master = booking[4]
 
             # Час із повідомлення — це НОВИЙ час
             new_time = time
@@ -2076,13 +2108,14 @@ async def ai_message(
                 "new_time": new_time
             }
 
-            reschedule_emoji = get_service_emoji(
+            reschedule_emoji = service_title(
                 old_service, business["category"]
             )
 
             await update.message.reply_text(
                 f"🔄 Перенести запис?\n\n"
-                f"{reschedule_emoji} {old_service}\n"
+                f"{reschedule_emoji}\n"
+                f"{master_line(old_master)}"
                 f"📅 {old_date} о {old_time}\n"
                 f"⬇️\n"
                 f"📅 {new_date} о {new_time}\n\n"
@@ -2199,7 +2232,7 @@ async def ai_message(
                 }
                 return
 
-            confirm_emoji = get_service_emoji(
+            confirm_emoji = service_title(
                 confirm_service["name"], confirm_business["category"]
             )
 
@@ -2213,7 +2246,8 @@ async def ai_message(
                 time,
                 success_text=(
                     "✅ Готово! Ви записані.\n\n"
-                    f"{confirm_emoji} {confirm_service['name']}\n"
+                    f"{confirm_emoji}\n"
+                    f"{master_line(service_master(confirm_service))}"
                     f"📅 {date}\n"
                     f"🕐 {time}\n\n"
                     "До зустрічі! 👋"
@@ -2271,14 +2305,15 @@ async def ai_message(
             state["time"] = time
             context.user_data["ai_state"] = state
 
-            choose_time_emoji = get_service_emoji(
+            choose_time_emoji = service_title(
                 choose_time_service["name"],
                 choose_time_business["category"]
             )
 
             await update.message.reply_text(
                 "📋 Підтверджуємо запис?\n\n"
-                f"{choose_time_emoji} {choose_time_service['name']}\n"
+                f"{choose_time_emoji}\n"
+                f"{master_line(service_master(choose_time_service))}"
                 f"📅 {date}\n"
                 f"🕐 {time}\n\n"
                 "Напишіть «так» для підтвердження."
@@ -2392,13 +2427,14 @@ async def ai_message(
                 state["time"] = time
                 context.user_data["ai_state"] = state
 
-                instant_emoji = get_service_emoji(
+                instant_emoji = service_title(
                     booking_service["name"], business["category"]
                 )
 
                 await update.message.reply_text(
                     "📋 Підтверджуємо запис?\n\n"
-                    f"{instant_emoji} {booking_service['name']}\n"
+                    f"{instant_emoji}\n"
+                    f"{master_line(service_master(booking_service))}"
                     f"📅 {date}\n"
                     f"🕐 {time}\n\n"
                     "Напишіть «так» для підтвердження."
@@ -2540,7 +2576,7 @@ async def handle_contact(
         context.user_data.pop("pending_phone_booking", None)
         return
 
-    phone_booking_emoji = get_service_emoji(
+    phone_booking_emoji = service_title(
         pending["service_name"], business["category"]
     )
 
@@ -2554,7 +2590,8 @@ async def handle_contact(
         pending["time"],
         success_text=(
             "✅ Запис підтверджено!\n\n"
-            f"{phone_booking_emoji} {pending['service_name']}\n"
+            f"{phone_booking_emoji}\n"
+            f"{master_line(get_service_master_name(pending['service_id']))}"
             f"📅 {pending['date']}\n"
             f"🕐 {pending['time']}\n\n"
             "До зустрічі! 👋"
@@ -2574,11 +2611,12 @@ REMINDER_SEND_INTERVAL_SECONDS = 1 / 25
 
 
 def _reminder_text(booking):
-    emoji = get_service_emoji(booking["service"], booking["business_category"])
+    emoji = service_title(booking["service"], booking["business_category"])
     return (
         "⏰ Нагадування!\n\n"
         "Ви записані:\n"
-        f"{emoji} {booking['service']}\n"
+        f"{emoji}\n"
+        f"{master_line(booking['master'])}"
         f"📅 {booking['date']}\n"
         f"🕒 {booking['time']}\n\n"
         f"Чекаємо на вас у «{booking['business_name']}»!"
@@ -2791,6 +2829,8 @@ def build_application():
 
     for handler in get_platform_handlers():
         app.add_handler(handler)
+
+    app.add_handler(get_demo_handler())
 
     app.add_handler(
         CommandHandler(
