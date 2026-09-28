@@ -3,6 +3,7 @@
 самої послуги, а якщо нічого не підійшло — за категорією бізнесу.
 Якщо не вдалось визначити нічого — повертаємо канцелярську кнопку.
 """
+import unicodedata
 
 DEFAULT_EMOJI = "📌"
 
@@ -63,3 +64,19 @@ def get_service_emoji(service_name, business_category=None):
                 return emoji
 
     return DEFAULT_EMOJI
+
+
+def _starts_with_emoji(text):
+    stripped = (text or "").lstrip()
+    return bool(stripped) and unicodedata.category(stripped[0]) == "So"
+
+
+def service_title(service_name, business_category=None):
+    """Назва послуги з емодзі попереду. Якщо власник уже почав назву з
+    емодзі (напр. «💅 Манікюр»), своє не додаємо — інакше вийде «💅 💅»."""
+    name = service_name or ""
+
+    if _starts_with_emoji(name):
+        return name
+
+    return f"{get_service_emoji(name, business_category)} {name}"

@@ -243,3 +243,37 @@ def test_schedule_callback_patterns_match_buttons(salon):
     import re
     for data in ("schedule_scope_master", f"schedule_master_{salon['olia']}"):
         assert any(re.match(p, data) for p in patterns), data
+
+
+# ---------- перерва ----------
+
+@pytest.mark.parametrize("value, expected", [
+    ("09:00-18:00", ("09:00", "18:00", None, None)),
+    ("09:00-18:00 перерва 13:00-14:00", ("09:00", "18:00", "13:00", "14:00")),
+    ("9:00–18:00, обід 13:00–14:00", ("09:00", "18:00", "13:00", "14:00")),
+    ("09:00-18:00 перерва 08:00-10:00", None),   # перерва до початку дня
+    ("09:00-18:00 перерва 17:00-18:00", None),   # впритул до кінця — це не перерва
+    ("09:00-18:00 перерва 14:00-13:00", None),
+    ("09:00-18:00 перерва", None),
+    ("18:00-09:00", None),
+])
+def test_parse_day_hours(value, expected):
+    assert schedule.parse_day_hours(value) == expected
+
+
+def test_owner_sets_a_masters_break(salon, quiet_events, frozen_now):
+    ctx = types.SimpleNamespace(user_data={
+        "schedule_business_id": 1,
+        "schedule_master_id": salon["maryna"],
+        "schedule_master_name": "Марина",
+    }, bot=None)
+
+    save = text_update("Пн 09:00-18:00 перерва 13:00-14:00\nВт 09:00-18:00 перерва 19:00-20:00")
+    run(schedule.save_schedule(save, ctx))
+
+    assert "Пн: 09:00–18:00 (перерва 13:00–14:00)" in save.message.replies[-1].text
+    assert "Вт" in save.message.replies[-2].text   # невдалий рядок названо
+    assert "13:00" not in bookings.get_available_times(1, MONDAY, 5)
+    assert "12:00" in bookings.get_available_times(1, MONDAY, 5)
+    # Послуги інших майстрів і бізнес без перерви.
+    assert "13:00" in bookings.get_available_times(1, MONDAY, 2)

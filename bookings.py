@@ -169,6 +169,15 @@ def _day_schedule(business_id, booking_date, service_id):
     return day_schedule
 
 
+def _break_intervals(day_schedule):
+    if day_schedule["break_start"] and day_schedule["break_end"]:
+        return [(
+            _minutes(day_schedule["break_start"]),
+            _minutes(day_schedule["break_end"]),
+        )]
+    return []
+
+
 def _slot_conflicts(
     cursor, business_id, booking_date, booking_time,
     service_id=None, ignore_booking_id=None
@@ -200,6 +209,8 @@ def get_available_times(business_id, date, service_id=None):
     duration = _service_duration(cursor, service_id)
     busy = _busy_intervals(cursor, business_id, date, service_id)
     conn.close()
+
+    busy += _break_intervals(day_schedule)
 
     # На сьогодні не пропонуємо час, який уже минув.
     now = now_local()
@@ -251,6 +262,13 @@ def booking_time_error(
             return (
                 f"🕒 Цього дня ми працюємо з {day_schedule['start_time']} "
                 f"до {day_schedule['end_time']}, а послуга триває "
+                f"{duration} хв. Оберіть, будь ласка, інший час."
+            )
+
+        if _overlaps(start, start + duration, _break_intervals(day_schedule)):
+            return (
+                f"🕒 З {day_schedule['break_start']} до "
+                f"{day_schedule['break_end']} перерва, а послуга триває "
                 f"{duration} хв. Оберіть, будь ласка, інший час."
             )
 
@@ -350,9 +368,11 @@ def get_customer_bookings(business_id, customer_id):
         SELECT bookings.id AS id,
                services.name AS service,
                bookings.booking_date AS date,
-               bookings.booking_time AS time
+               bookings.booking_time AS time,
+               masters.name AS master
         FROM bookings
         JOIN services ON services.id = bookings.service_id
+        LEFT JOIN masters ON masters.id = services.master_id
         WHERE bookings.business_id = ?
           AND bookings.customer_id = ?
           AND bookings.status = 'confirmed'
@@ -484,11 +504,13 @@ def get_upcoming_bookings_needing_reminder(hours_ahead=2):
                bookings.booking_time AS time,
                businesses.id AS business_id,
                businesses.name AS business_name,
-               businesses.category AS business_category
+               businesses.category AS business_category,
+               masters.name AS master
         FROM bookings
         JOIN customers ON customers.id = bookings.customer_id
         JOIN services ON services.id = bookings.service_id
         JOIN businesses ON businesses.id = bookings.business_id
+        LEFT JOIN masters ON masters.id = services.master_id
         WHERE bookings.status = 'confirmed'
           AND bookings.reminder_sent = 0
           -- Served by idx_bookings_pending_reminder; the exact

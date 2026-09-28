@@ -146,10 +146,12 @@ def _all_active_services(business_id):
     conn = get_connection()
     rows = conn.execute(
         """
-        SELECT id, name, price, duration
+        SELECT services.id, services.name, services.price,
+               services.duration, masters.name AS master_name
         FROM services
-        WHERE business_id = ? AND active = 1
-        ORDER BY id
+        LEFT JOIN masters ON masters.id = services.master_id
+        WHERE services.business_id = ? AND services.active = 1
+        ORDER BY services.id
         """,
         (business_id,)
     ).fetchall()

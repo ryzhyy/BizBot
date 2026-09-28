@@ -17,6 +17,7 @@ from telegram.ext import (
 )
 
 from database import (
+    format_day_hours,
     set_working_hours,
     get_master_working_hours,
     get_working_hours,
@@ -61,8 +62,61 @@ def schedule_instructions_text(service_name=None, master_name=None):
         "Пт 09:00-18:00\n"
         "Сб 10:00-16:00\n"
         "Нд вихідний\n\n"
-        "Можна вказати «вихідний» для закритого дня."
+        "Можна вказати «вихідний» для закритого дня, а перерву — так:\n"
+        "Пн 09:00-18:00 перерва 13:00-14:00"
     )
+
+
+BREAK_WORDS = ("перерва", "обід")
+
+
+def _parse_interval(text):
+    parts = [
+        part.strip()
+        for part in text.replace("–", "-").replace("—", "-").split("-", 1)
+    ]
+
+    if len(parts) != 2:
+        return None
+
+    try:
+        start = datetime.strptime(parts[0], "%H:%M")
+        end = datetime.strptime(parts[1], "%H:%M")
+    except ValueError:
+        return None
+
+    if start >= end:
+        return None
+
+    return start.strftime("%H:%M"), end.strftime("%H:%M")
+
+
+def parse_day_hours(value):
+    """'09:00-18:00' or '09:00-18:00 перерва 13:00-14:00' ->
+    (start, end, break_start, break_end); None if it doesn't parse or
+    the break isn't strictly inside the working hours."""
+    text = value.strip().lower()
+    break_text = None
+
+    for word in BREAK_WORDS:
+        if word in text:
+            text, break_text = (part.strip(" ,") for part in text.split(word, 1))
+            break
+
+    hours = _parse_interval(text)
+
+    if hours is None:
+        return None
+
+    if break_text is None:
+        return hours[0], hours[1], None, None
+
+    pause = _parse_interval(break_text)
+
+    if pause is None or not (hours[0] < pause[0] and pause[1] < hours[1]):
+        return None
+
+    return hours[0], hours[1], pause[0], pause[1]
 
 
 async def schedule_start(
@@ -308,29 +362,13 @@ async def save_schedule(
                 saved += 1
                 continue
 
-            normalized = (
-                value
-                .replace("–", "-")
-                .replace("—", "-")
-            )
+            parsed = parse_day_hours(value)
 
-            time_parts = [
-                x.strip()
-                for x in normalized.split("-", 1)
-            ]
-
-            if len(time_parts) != 2:
+            if parsed is None:
                 errors.append(DAY_NAMES[weekday])
                 continue
 
-            start_time, end_time = time_parts
-
-            try:
-                datetime.strptime(start_time, "%H:%M")
-                datetime.strptime(end_time, "%H:%M")
-            except ValueError:
-                errors.append(DAY_NAMES[weekday])
-                continue
+            start_time, end_time, break_start, break_end = parsed
 
             set_working_hours(
                 business_id,
@@ -339,7 +377,9 @@ async def save_schedule(
                 end_time,
                 1,
                 service_id,
-                master_id
+                master_id,
+                break_start,
+                break_end
             )
 
             saved += 1
@@ -395,16 +435,7 @@ async def save_schedule(
     result = [header]
 
     for row in rows:
-        day = DAY_NAMES[row["weekday"]]
-
-        if row["is_open"]:
-            result.append(
-                f"{day}: {row['start_time']}–{row['end_time']}"
-            )
-        else:
-            result.append(
-                f"{day}: вихідний"
-            )
+        result.append(f"{DAY_NAMES[row['weekday']]}: {format_day_hours(row)}")
 
     await update.message.reply_text(
         "\n".join(result)
