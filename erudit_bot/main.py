@@ -1,4 +1,4 @@
-"""Точка входу: python -m erudit_bot [--once] [--dry-run] [--url URL]"""
+"""Точка входу: python -m erudit_bot [--check] [--once] [--dry-run] [--url URL]"""
 
 import argparse
 import logging
@@ -31,7 +31,8 @@ def collect_new_urls(scraper, store, source_urls, limit):
     return list(reversed(fresh[:limit]))
 
 
-def process_article(url, scraper, writer, publisher, store, dry_run=False):
+def process_article(url, scraper, writer, publisher, store, dry_run=False,
+                    min_score=0):
     """Повертає True, якщо пост створено (і опубліковано, якщо не dry-run)."""
     article = scraper.fetch_article(url)
     if not article.title or not article.text:
@@ -42,10 +43,18 @@ def process_article(url, scraper, writer, publisher, store, dry_run=False):
 
     post = writer.write(article)
 
+    if post.score < min_score:
+        logger.info("Не сенсація (%d/10 < %d), пропускаю: %s",
+                    post.score, min_score, article.title)
+        if not dry_run:
+            store.mark_seen(url, article.title)
+        return False
+
     if dry_run:
         print("=" * 60)
+        print(f"[гучність: {post.score}/10] [фото: {article.image_url or '—'}]")
         print(post.to_html())
-        print(f"[картинка: {article.image_url or '—'}]")
+        print(f"[ ЧИТАТИ ↗ ] → {url}")
         return True
 
     publisher.publish(post, image_url=article.image_url)
@@ -56,20 +65,28 @@ def process_article(url, scraper, writer, publisher, store, dry_run=False):
 
 def run_once(config, scraper, writer, publisher, store, dry_run=False,
              urls=None):
-    if urls is None:
+    # Статті, вказані вручну, публікуємо всі й без фільтра гучності.
+    manual = bool(urls)
+    min_score = 0 if manual else config.min_score
+    max_posts = len(urls) if manual else config.max_posts_per_run
+    if not manual:
+        # Беремо з запасом: частину кандидатів AI відсіє як не сенсаційні.
         urls = collect_new_urls(
-            scraper, store, config.source_urls, config.max_posts_per_run
+            scraper, store, config.source_urls, config.max_candidates
         )
     if not urls:
         logger.info("Нових новин немає")
         return 0
 
     done = 0
-    for index, url in enumerate(urls):
-        if index and not dry_run:
+    for url in urls:
+        if done >= max_posts:
+            break
+        if done and not dry_run:
             time.sleep(config.post_delay_seconds)
         try:
-            if process_article(url, scraper, writer, publisher, store, dry_run):
+            if process_article(url, scraper, writer, publisher, store,
+                               dry_run, min_score):
                 done += 1
         except Exception:
             # Не позначаємо як опубліковану — спробуємо наступного разу.
@@ -79,6 +96,8 @@ def run_once(config, scraper, writer, publisher, store, dry_run=False,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Erudit-bot: новини Tribuna → Telegram")
+    parser.add_argument("--check", action="store_true",
+                        help="перевірити токен бота і доступ до каналу")
     parser.add_argument("--once", action="store_true",
                         help="один прохід і вихід (для cron)")
     parser.add_argument("--dry-run", action="store_true",
@@ -93,9 +112,18 @@ def main(argv=None):
     )
 
     config = Config()
+    missing = config.missing_for_publish()
+    if args.check:
+        if missing:
+            sys.exit(f"Не задано: {', '.join(missing)}")
+        publisher = TelegramPublisher(
+            config.telegram_bot_token, config.telegram_channel_id
+        )
+        bot, channel = publisher.check()
+        print(f"OK: бот @{bot} може публікувати в «{channel}»")
+        return
     if not config.openai_api_key:
         sys.exit("Не задано OPENAI_API_KEY")
-    missing = config.missing_for_publish()
     if missing and not args.dry_run:
         sys.exit(f"Не задано: {', '.join(missing)} (або запустіть з --dry-run)")
 

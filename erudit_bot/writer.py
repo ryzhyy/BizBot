@@ -1,9 +1,13 @@
-"""Перетворення сирої новини на короткий клікбейтний пост для Telegram."""
+"""Перетворення новини на короткий клікбейтний тизер для Telegram.
+
+Пост не переказує новину повністю: він інтригує й веде читача на Tribuna
+через кнопку «ЧИТАТИ» під постом.
+"""
 
 import html
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from openai import OpenAI
 
@@ -15,59 +19,53 @@ OPENAI_MAX_RETRIES = 1
 CAPTION_LIMIT = 1024
 MESSAGE_LIMIT = 4096
 
-SYSTEM_PROMPT = """Ти — редактор спортивного Telegram-каналу «Ерудит».
-Твоє завдання: переписати новину українською так, щоб її хотілося дочитати.
+SYSTEM_PROMPT = """Ти — редактор популярного футбольного Telegram-каналу.
+Ти отримуєш новину з Tribuna і пишеш до неї короткий пост-тизер, після
+якого читач обов'язково натисне кнопку «ЧИТАТИ» й перейде на сайт.
+
+Як виглядає пост:
+1. title — найгучніша цитата з новини в «ялинках» або інтригуюча фраза.
+   Починається з 1 доречного емодзі (🧡 ❗️ 😱 🔥 ⚡️ 💔 🤯 тощо). До 80 символів.
+   Приклад: 🧡 «Всі футболісти заслуговують на величезні оплески»
+2. teaser — 1 коротке речення: хто і що зробив/сказав, щоб був зрозумілий
+   контекст. Можна 1 емодзі в кінці. Приклад:
+   Рінат Ахметов прокоментував перемогу «Шахтаря» в Лізі чемпіонів 💬
+3. hook — 2-5 слів, що залишають головне нерозкритим і кличуть читати далі,
+   завершуються 👇. Приклади: «Кого саме виділив 👇», «Що сталося далі 👇»,
+   «Названо суму трансферу 👇», «Реакція тренера 👇».
+4. score — ціле число 1-10: наскільки новина гучна для українського
+   вболівальника (10 — сенсація: топ-трансфер, скандал, гучна заява,
+   історичний результат; 1 — дрібна рутинна новина).
 
 Правила:
-1. Заголовок — клікбейтний і інтригуючий (емоція, питання, недомовленість,
-   цифра або несподіваний поворот), до 90 символів. Але БЕЗ брехні: усе,
-   що обіцяє заголовок, має підтверджуватися текстом новини.
-2. Гачок — 1 речення, яке чіпляє й змушує читати далі.
-3. Основний текст — 2-4 короткі речення: що сталося, хто, головна цифра
-   чи факт, чому це важливо. Простими словами, без води й канцеляриту.
-4. Не вигадуй фактів, цитат, рахунків чи імен, яких немає в новині.
-5. 1-2 доречні емодзі в заголовку, не більше 3 на весь пост.
-6. 2-4 хештеги без пробілів (наприклад: #футбол #АПЛ #Мудрик).
-7. Без markdown і HTML у полях.
+- Головну інтригу НЕ розкривай у пості — вона має бути за кнопкою.
+- Не вигадуй фактів, цитат, цифр чи імен, яких немає в новині. Цитата в
+  title — лише справжня цитата з тексту (можна скоротити, не змінюючи змісту).
+- Пиши живою українською, просто й ясно, без канцеляриту.
+- Без markdown, HTML і хештегів.
 
 Поверни ТІЛЬКИ валідний JSON:
-{"title": "...", "hook": "...", "body": "...", "hashtags": ["#...", "#..."]}
+{"title": "...", "teaser": "...", "hook": "...", "score": 7}
 """
 
 
 @dataclass
 class Post:
     title: str
-    hook: str
-    body: str
-    hashtags: list = field(default_factory=list)
+    teaser: str
+    hook: str = ""
+    score: int = 0
     source_url: str = ""
 
     def to_html(self, limit=MESSAGE_LIMIT):
         """Текст поста в Telegram HTML, обрізаний до ліміту."""
-        tags = " ".join(
-            h if h.startswith("#") else f"#{h}"
-            for h in (t.replace(" ", "") for t in self.hashtags) if h.strip("#")
-        )
-        footer_parts = []
-        if self.source_url:
-            footer_parts.append(
-                f'<a href="{html.escape(self.source_url, quote=True)}">'
-                "Джерело: Tribuna</a>"
-            )
-        if tags:
-            footer_parts.append(html.escape(tags))
-        footer = "\n\n" + "\n".join(footer_parts) if footer_parts else ""
-
         head = f"<b>{html.escape(self.title)}</b>\n\n"
-        if self.hook:
-            head += f"<i>{html.escape(self.hook)}</i>\n\n"
-        body = html.escape(self.body)
-
-        room = limit - len(head) - len(footer)
-        if len(body) > room:
-            body = body[:max(0, room - 1)].rstrip() + "…"
-        return head + body + footer
+        tail = f"\n\n{html.escape(self.hook)}" if self.hook else ""
+        teaser = html.escape(self.teaser)
+        room = limit - len(head) - len(tail)
+        if len(teaser) > room:
+            teaser = teaser[:max(0, room - 1)].rstrip() + "…"
+        return head + teaser + tail
 
 
 def _parse_json(text):
@@ -81,20 +79,24 @@ def _parse_json(text):
     return data
 
 
+def _score(value):
+    try:
+        return max(0, min(10, int(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
 def post_from_ai_output(text, source_url):
     data = _parse_json(text)
     title = str(data.get("title") or "").strip()
-    body = str(data.get("body") or "").strip()
-    if not title or not body:
-        raise ValueError("AI output is missing title or body")
-    hashtags = data.get("hashtags") or []
-    if isinstance(hashtags, str):
-        hashtags = hashtags.split()
+    teaser = str(data.get("teaser") or "").strip()
+    if not title or not teaser:
+        raise ValueError("AI output is missing title or teaser")
     return Post(
         title=title,
+        teaser=teaser,
         hook=str(data.get("hook") or "").strip(),
-        body=body,
-        hashtags=[str(h).strip() for h in hashtags if str(h).strip()][:4],
+        score=_score(data.get("score")),
         source_url=source_url,
     )
 

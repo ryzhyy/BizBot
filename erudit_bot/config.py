@@ -41,8 +41,16 @@ class Config:
     max_posts_per_run: int = field(
         default_factory=lambda: int(os.getenv("ERUDIT_MAX_POSTS_PER_RUN", "3"))
     )
+    # Скільки свіжих новин максимум оцінює AI за прохід (решта — наступного разу).
+    max_candidates: int = field(
+        default_factory=lambda: int(os.getenv("ERUDIT_MAX_CANDIDATES", "10"))
+    )
     interval_minutes: int = field(
         default_factory=lambda: int(os.getenv("ERUDIT_INTERVAL_MINUTES", "30"))
+    )
+    # Мінімальна «гучність» новини (1-10, оцінює AI), щоб потрапити в канал.
+    min_score: int = field(
+        default_factory=lambda: int(os.getenv("ERUDIT_MIN_SCORE", "6"))
     )
     # Пауза між постами, щоб не спамити канал і не ловити flood-limit.
     post_delay_seconds: float = field(
