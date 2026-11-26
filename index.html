@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="BizBot — AI-адміністратор запису для малого бізнесу в Telegram.">
+<title>BizBot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+/* VOICE occasion, a project landing shown to a hiring team, confident and tidy
+   IDEA a metro map: one red line carries a client's message through every station to a confirmed booking
+   PICTURE a phone with the real booking chat, and the metro line of the automation chain below
+   COLOUR white ground, near-black ink, metro red leads, blue and green support, amber accent; night #0e1116
+   TYPE Figtree 800 display + Figtree text
+   LAYOUT laptop: title and facts left, phone right; then a full-width metro line. phone: title, phone, line turns vertical */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#0e1116);--ink:light-dark(#111418,#eef1f5);--mute:light-dark(#4a515c,#a9b1bd);--rule:light-dark(#e3e6ea,#262c35);--soft:light-dark(#f4f5f7,#161b22);--red:#e6261f;--blue:light-dark(#0a5cff,#4d8bff);--green:light-dark(#00a05a,#2fc07f);--amber:#ffb400;--bubble:light-dark(#ffffff,#1d232c);--me:light-dark(#dff3d6,#1f4a33)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Figtree,system-ui,sans-serif;overflow-x:clip}
+a{color:inherit}
+.band{padding-block:clamp(28px,4vw,64px);padding-left:max(5vw,16px,env(safe-area-inset-left,0px));padding-right:max(5vw,16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1240px;margin:0 auto}
+nav{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:center;padding-block:18px;border-bottom:1px solid var(--rule)}
+nav .logo{font-weight:800;font-size:20px;margin-right:auto;display:flex;gap:8px;align-items:center}
+nav .logo i{width:14px;height:14px;border-radius:50%;background:var(--red);box-shadow:0 0 0 4px color-mix(in srgb,var(--red) 22%,transparent)}
+nav a{text-decoration:none;color:var(--mute);font-weight:500}
+nav a:hover{color:var(--ink)}
+h1,h2,h3{line-height:1.05;letter-spacing:-.02em;margin:0}
+h1{font-size:clamp(36px,5vw,56px);font-weight:800}
+h2{font-size:clamp(28px,3.4vw,40px);font-weight:800;margin-bottom:14px}
+h3{font-size:20px;font-weight:800;margin-bottom:6px}
+p{margin:0 0 12px}
+.lead{font-size:clamp(17px,1.6vw,20px);color:var(--mute);max-width:36em;margin-top:18px}
+.hero{display:grid;gap:40px;align-items:center}
+@media(min-width:900px){.hero{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)}}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(9em,1fr));gap:12px;margin-top:28px}
+.fact{border-top:4px solid var(--c);padding-top:10px}
+.fact b{display:block;font-size:30px;font-weight:800;line-height:1.1}
+.fact span{color:var(--mute);font-size:14px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+.btn{display:inline-flex;align-items:center;min-height:46px;padding:0 20px;border-radius:999px;font-weight:600;text-decoration:none;border:2px solid var(--ink)}
+.btn.main{background:var(--red);border-color:var(--red);color:#fff}
+.btn:hover{transform:translateY(-1px)}
+.phone{justify-self:center;width:min(100%,340px);border-radius:40px;padding:12px;background:#111418;box-shadow:0 20px 40px -24px rgba(0,0,0,.5)}
+.screen{border-radius:30px;overflow:hidden;background:light-dark(#e7ebf0,#0b0e12)}
+.bar{display:flex;justify-content:space-between;padding:10px 20px 6px;font-size:12px;font-weight:600}
+.chat-head{display:flex;gap:10px;align-items:center;padding:8px 14px 10px;background:var(--bubble);border-bottom:1px solid var(--rule)}
+.chat-head i{width:34px;height:34px;border-radius:50%;background:var(--red);display:grid;place-items:center;color:#fff;font-style:normal;font-weight:800}
+.chat-head small{display:block;color:var(--mute);font-size:12px}
+.msgs{display:flex;flex-direction:column;gap:8px;padding:14px 12px 16px;font-size:14px;line-height:1.4}
+.m{max-width:86%;padding:8px 11px;border-radius:14px;background:var(--bubble);white-space:pre-line}
+.m.me{align-self:flex-end;background:var(--me)}
+.keys{display:grid;grid-template-columns:1fr 1fr;gap:6px;max-width:86%}
+.keys span{background:color-mix(in srgb,var(--blue) 14%,var(--bubble));color:var(--blue);border-radius:10px;padding:7px;text-align:center;font-weight:600;font-size:13px}
+.metro{background:var(--soft)}
+.line{list-style:none;margin:28px 0 0;padding:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));position:relative}
+.line::before{content:"";position:absolute;left:7%;right:7%;top:15px;height:8px;border-radius:8px;background:var(--red)}
+.st{position:relative;padding:0 8px;text-align:center}
+.st .dot{width:38px;height:38px;margin:0 auto 12px;border-radius:50%;background:var(--bg);border:7px solid var(--c,var(--red));position:relative}
+.st h3{font-size:16px}
+.st p{font-size:14px;color:var(--mute);margin:0}
+.st .tag{display:inline-block;margin-top:8px;font-size:13px;font-weight:600;color:var(--c,var(--red))}
+@media(max-width:860px){.line{grid-template-columns:1fr;gap:18px}.line::before{left:15px;right:auto;top:10px;bottom:10px;width:8px;height:auto}.st{display:grid;grid-template-columns:38px 1fr;gap:0 16px;text-align:left;padding:0}.st .dot{margin:0;grid-row:span 3}}
+.cols{display:grid;gap:20px;grid-template-columns:repeat(auto-fit,minmax(16em,1fr));margin-top:24px}
+.card{border:1px solid var(--rule);border-radius:16px;padding:22px;border-top:6px solid var(--c)}
+.card ul{margin:10px 0 0;padding-left:18px;color:var(--mute)}
+.card li{margin-bottom:6px}
+.eng{display:grid;gap:28px}
+@media(min-width:900px){.eng{grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr)}}
+.rows{border-top:1px solid var(--rule)}
+.row{display:grid;grid-template-columns:minmax(0,13em) minmax(0,1fr);gap:16px;padding:14px 0;border-bottom:1px solid var(--rule)}
+.row b{font-weight:800}
+.row span{color:var(--mute)}
+@media(max-width:600px){.row{grid-template-columns:1fr;gap:4px}}
+.stack{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.stack span{border:1px solid var(--rule);border-radius:999px;padding:6px 14px;font-weight:600;font-size:14px}
+.author{background:#111418;color:#eef1f5}
+.author .wrap{display:grid;gap:24px;align-items:end}
+@media(min-width:900px){.author .wrap{grid-template-columns:minmax(0,1.3fr) minmax(0,.7fr)}}
+.author p{color:#b8c0cb;max-width:38em}
+.author .btn{border-color:#eef1f5}
+footer{color:var(--mute);font-size:14px;padding-block:20px!important}
+@media(prefers-reduced-motion:no-preference){.st .dot::after{content:"";position:absolute;inset:-7px;border-radius:50%;border:2px solid var(--c,var(--red));animation:ping 2.8s ease-out infinite;animation-delay:calc(var(--i)*.4s);opacity:0}}
+@keyframes ping{0%{transform:scale(1);opacity:.7}70%,100%{transform:scale(1.7);opacity:0}}
+</style>
+</head>
+<body>
+
+<div class="band" style="padding-block:0"><div class="wrap"><nav>
+  <span class="logo"><i></i>BizBot</span>
+  <a href="#chain">Ланцюг автоматизації</a>
+  <a href="#method">Як працює</a>
+  <a href="#eng">Інженерія</a>
+  <a href="#author">Автор</a>
+</nav></div></div>
+
+<header class="band"><div class="wrap hero">
+  <div>
+    <h1>AI-адміністратор запису для малого бізнесу в Telegram</h1>
+    <p class="lead">Салон, барбершоп чи репетитор налаштовує власного бота за 10–15 хвилин, без сайту й програмування. Клієнти записуються кнопками або звичайним повідомленням, а бот сам перевіряє графік, майстра й вільний час.</p>
+    <div class="facts">
+      <div class="fact" style="--c:var(--red)"><b>1 бот</b><span>для багатьох незалежних бізнесів</span></div>
+      <div class="fact" style="--c:var(--blue)"><b>3 ролі</b><span>клієнт, власник, власник платформи</span></div>
+      <div class="fact" style="--c:var(--green)"><b>150+</b><span>автотестів, CI перед кожним деплоєм</span></div>
+    </div>
+    <div class="cta">
+      <a class="btn main" href="https://github.com/ryzhyy/BizBot">Код на GitHub</a>
+      <a class="btn" href="#chain">Як це працює</a>
+    </div>
+  </div>
+  <div class="phone" aria-label="Приклад діалогу з ботом">
+    <div class="screen">
+      <div class="bar"><span>10:24</span><span>5G ▮▮▮</span></div>
+      <div class="chat-head"><i>B</i><div><b>Beauty Studio</b><small>бот · онлайн</small></div></div>
+      <div class="msgs">
+        <div class="m me">Хочу на манікюр у вівторок о 13</div>
+        <div class="m">🕒 З 13:00 до 14:00 перерва, а послуга триває 60 хв. Оберіть, будь ласка, інший час.</div>
+        <div class="keys"><span>12:00</span><span>14:00</span><span>15:00</span><span>16:00</span></div>
+        <div class="m me">Давай о 14</div>
+        <div class="m">📋 Підтверджуємо запис?
+💅 Манікюр
+👤 Майстер: Марія
+📅 Вт, 6 жовтня · 🕐 14:00</div>
+        <div class="m me">Так</div>
+        <div class="m">✅ Готово! Ви записані. Нагадаю за 2 години 👋</div>
+      </div>
+    </div>
+  </div>
+</div></header>
+
+<section class="band metro" id="chain"><div class="wrap">
+  <h2>Ланцюг автоматизації: від повідомлення до запису</h2>
+  <p class="lead" style="margin-top:0">Кожне повідомлення клієнта проходить ту саму лінію. Людина втручається лише тоді, коли хоче: власник отримує готовий запис, а не переписку.</p>
+  <ol class="line" id="line"></ol>
+</div></section>
+
+<section class="band" id="method"><div class="wrap">
+  <h2>Методика: три ролі, одна система</h2>
+  <div class="cols">
+    <div class="card" style="--c:var(--red)"><h3>Клієнт</h3><p>Відкриває персональне посилання бізнесу й записується так, як йому зручно.</p><ul><li>кнопки: послуга → майстер → дата → вільний час</li><li>вільний текст: «перенеси мій запис на 15:00»</li><li>«Мої записи», FAQ, контакти й локація</li><li>нагадування за 2 години</li></ul></div>
+    <div class="card" style="--c:var(--blue)"><h3>Власник бізнесу</h3><p>Налаштовує все в тому ж Telegram, без окремої адмінки.</p><ul><li>послуги, ціни, тривалість і майстри</li><li>графік бізнесу, послуги чи майстра з перервою</li><li>сповіщення про кожен запис, «Виконано» і «Скасувати»</li><li>режим клієнта, щоб побачити бот очима клієнта</li></ul></div>
+    <div class="card" style="--c:var(--green)"><h3>Власник платформи</h3><p>Керує всіма бізнесами й тарифами з однієї панелі.</p><ul><li>список бізнесів, Pro на 14 чи 30 днів</li><li>звіти про помилки в Telegram</li><li>щоденний бекап бази</li><li>демо-бізнес однією командою</li></ul></div>
+  </div>
+</div></section>
+
+<section class="band metro" id="eng"><div class="wrap eng">
+  <div>
+    <h2>Що всередині</h2>
+    <p class="lead" style="margin-top:0">Проєкт починався як простий бот і поступово дійшов до рівня, з яким не страшно мати сотні бізнесів. Розроблявся з AI-асистентом для програмування: я ставив задачі, перевіряв рішення й вирішував, що йде в продакшн.</p>
+    <div class="stack"><span>Python 3.12</span><span>python-telegram-bot</span><span>OpenAI API</span><span>SQLite</span><span>Docker</span><span>Railway</span><span>GitHub Actions</span><span>pytest</span></div>
+  </div>
+  <div class="rows">
+    <div class="row"><b>Ізоляція бізнесів</b><span>Клієнти, послуги й записи кожного бізнесу прив'язані до business_id; окремі тести перевіряють, що дані не змішуються.</span></div>
+    <div class="row"><b>Без подвійних записів</b><span>Перевірка слоту й запис іде в одній транзакції (BEGIN IMMEDIATE), тож двоє клієнтів не займуть той самий час.</span></div>
+    <div class="row"><b>Міграції без втрати даних</b><span>Версійовані міграції схеми, перед кожною автоматична копія бази.</span></div>
+    <div class="row"><b>Майстри й графіки</b><span>Кожен майстер має свою чергу й графік з перервою; зайнятий майстер не блокує інших.</span></div>
+    <div class="row"><b>Тести як захист</b><span>Наскрізні тести всього шляху клієнта. Логіку навмисно ламали, щоб переконатися, що тести це ловлять.</span></div>
+    <div class="row"><b>CI → деплой</b><span>Railway викочує нову версію лише після зелених тестів у GitHub Actions.</span></div>
+  </div>
+</div></section>
+
+<section class="band author" id="author"><div class="wrap">
+  <div>
+    <h2>Дмитро Курп'як</h2>
+    <p>Студент 1 курсу. BizBot — мій перший продукт від ідеї до продакшну: продумав, як має працювати запис для салону, перевіряв кожну зміну тестами й вів розробку з AI-асистентом.</p>
+  </div>
+  <div class="cta" style="margin-top:0">
+    <a class="btn main" href="https://t.me/kUrp1ak">Telegram: @kUrp1ak</a>
+    <a class="btn" href="https://github.com/ryzhyy/BizBot">GitHub</a>
+  </div>
+</div></section>
+
+<footer class="band"><div class="wrap">BizBot · навчальний проєкт, 2026 · приклад діалогу вище показує демо-салон «Beauty Studio»</div></footer>
+
+<script>
+{
+  const stations=[
+    ["Повідомлення","Клієнт пише боту або тисне кнопку в Telegram.","Telegram","var(--blue)"],
+    ["AI розбирає намір","Що хоче клієнт: запис, перенесення, скасування; послуга, дата, час.","OpenAI","var(--amber)"],
+    ["Перевірка слоту","Графік майстра, перерва, вихідні, минулий час і черга саме цього майстра.","правила","var(--red)"],
+    ["Атомарний запис","Перевірка й збереження в одній транзакції, ліміт тарифу.","SQLite","var(--red)"],
+    ["Сповіщення","Клієнт отримує підтвердження, власник — новий запис з майстром і телефоном.","2 повідомлення","var(--green)"],
+    ["Нагадування","Фонове завдання щохвилини шукає записи на найближчі 2 години.","job queue","var(--blue)"],
+    ["Бекап","Щоночі копія бази надходить власнику платформи.","03:00","var(--green)"]
+  ];
+  document.getElementById("line").innerHTML=stations.map(([t,d,tag,c],i)=>
+    `<li class="st" style="--c:${c};--i:${i}"><div class="dot"></div><h3>${t}</h3><p>${d}</p><span class="tag">${tag}</span></li>`).join("");
+}
+</script>
+</body>
+</html>
