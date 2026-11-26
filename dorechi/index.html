@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Продуктовий кейс Telegram-каналу «До речі»: проблема, методика, автоматизація, ітерації, економіка.">
+<title>Кейс «До речі»</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600;7..72,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#121216);--ink:light-dark(#14141a,#ececf0);--soft:light-dark(#5b5b66,#a3a3ad);--line:light-dark(#e3e3e8,#2c2c34);--tint:light-dark(#f6f4f1,#1b1b21);--dot:light-dark(#b3123a,#ff5a7a);--off:light-dark(#9a9aa4,#6c6c76)}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Instrument Sans",system-ui,sans-serif;overflow-x:clip}
+.band{padding-block:clamp(28px,4vw,56px);padding-left:max(5vw,16px,env(safe-area-inset-left,0px));padding-right:max(5vw,16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1180px;margin:0 auto}
+h1,h2,h3{font-family:Literata,Georgia,serif;letter-spacing:-.02em;line-height:1.08;margin:0}
+h1{font-size:clamp(40px,6vw,64px);font-weight:700}
+h1 i{font-style:normal;color:var(--dot)}
+h2{font-size:clamp(26px,3vw,34px);font-weight:600;margin-bottom:18px}
+h3{font-size:19px;font-weight:600;margin-bottom:6px}
+p{margin:0 0 12px;max-width:68ch}
+.muted{color:var(--soft)}
+.small{font-size:14px}
+.top{display:grid;gap:28px;grid-template-columns:minmax(0,1fr)}
+@media(min-width:820px){.top{grid-template-columns:minmax(0,5fr) minmax(0,6fr);align-items:end}}
+.lead{font-size:clamp(18px,1.6vw,20px);margin-top:16px}
+.status{display:inline-flex;gap:8px;align-items:center;margin-top:18px;font-size:14px;padding:6px 12px;border:1px solid var(--line);border-radius:999px}
+.status b{width:8px;height:8px;border-radius:50%;background:var(--off);display:inline-block}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5em,1fr));gap:1px;background:var(--line);border:1px solid var(--line)}
+.facts div{background:var(--bg);padding:14px 16px}
+.facts strong{display:block;font-family:Literata,Georgia,serif;font-size:26px;font-weight:600;white-space:nowrap}
+.facts span{font-size:14px;color:var(--soft)}
+.route{margin-top:34px;border-top:1px solid var(--line);padding-top:22px}
+.route h2{font-size:22px;margin-bottom:6px}
+.line{display:flex;flex-wrap:wrap;gap:10px 0;align-items:stretch;margin-top:16px}
+.st{position:relative;flex:1 1 130px;padding:12px 14px 12px 0;margin-right:18px;border-top:4px solid var(--ink)}
+.st:after{content:"";position:absolute;right:-14px;top:-9px;width:10px;height:10px;border-top:4px solid var(--ink);border-right:4px solid var(--ink);transform:rotate(45deg)}
+.st:last-child:after{display:none}
+.st.out{border-color:var(--dot)}
+.st.out:after{border-color:var(--dot)}
+.st b{display:block;font-size:15px}
+.st span{display:block;font-size:13px;color:var(--soft);line-height:1.4}
+.cut{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px;align-items:center}
+.cut em{font-style:normal;font-size:14px;color:var(--soft);margin-right:4px}
+.chip{font-size:13px;padding:5px 10px;border:1px dashed var(--off);border-radius:6px;color:var(--off);text-decoration:line-through;text-decoration-thickness:1px}
+.alt{background:var(--tint)}
+.two{display:grid;gap:32px;grid-template-columns:minmax(0,1fr)}
+@media(min-width:820px){.two{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+.week{display:grid;grid-template-columns:repeat(auto-fill,minmax(8.2em,1fr));gap:6px;margin:6px 0 18px}
+.day{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 10px}
+.day b{display:block;font-size:13px;color:var(--soft);font-weight:500}
+.day span{display:block;font-size:14px;line-height:1.3;margin-top:4px;overflow-wrap:break-word;hyphens:auto}
+
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
+.split div{padding:16px}
+.split div+div{border-left:1px solid var(--line)}
+.split ul{margin:0;padding-left:18px}
+.split li{margin-bottom:6px;font-size:15px}
+@media(max-width:600px){.split{grid-template-columns:minmax(0,1fr)}.split div+div{border-left:0;border-top:1px solid var(--line)}}
+.passes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 0 16px}
+.passes div{border-top:3px solid var(--ink);padding-top:8px;font-size:14px}
+.passes b{display:block;font-size:15px}
+.tl{list-style:none;margin:0;padding:0;border-left:2px solid var(--line)}
+.tl li{position:relative;padding:0 0 18px 22px}
+.tl li:before{content:"";position:absolute;left:-7px;top:6px;width:12px;height:12px;border-radius:50%;background:var(--bg);border:2px solid var(--ink)}
+.tl li.k:before{background:var(--dot);border-color:var(--dot)}
+.tl time{font-weight:600;white-space:nowrap;margin-right:8px}
+.tl p{margin:2px 0 0;font-size:15px;color:var(--soft)}
+.econ{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(14em,1fr))}
+.card{border:1px solid var(--line);border-radius:10px;padding:16px;background:var(--bg)}
+.card strong{font-family:Literata,Georgia,serif;font-size:30px;font-weight:600;display:block;white-space:nowrap}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{text-align:left;padding:10px 12px 10px 0;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;font-size:14px;color:var(--soft)}
+@media(max-width:600px){table{font-size:14px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px;border-bottom:1px solid var(--line)}.stack td{display:block;border:0;padding:2px 0}.stack td::before{content:attr(data-l);display:block;font-size:13px;color:var(--soft)}}
+.skills{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(15em,1fr))}
+.skills div{border-top:3px solid var(--dot);padding-top:12px}
+.cv{border-left:3px solid var(--dot);padding:4px 0 4px 18px;font-family:Literata,Georgia,serif;font-size:18px;line-height:1.55;max-width:72ch}
+footer{font-size:14px;color:var(--soft)}
+</style>
+
+</head>
+<body>
+<section class="band">
+ <div class="wrap">
+  <div class="top">
+   <div>
+    <h1>до речі<i>.</i></h1>
+    <p class="lead">Україномовний Telegram-канал про великі ідеї. Щоранку о 08:00 — одна глибока думка простою мовою. Пости пише ШІ, а продуктом керую я: теми, формат, правила якості, канали поширення й витрати.</p>
+    <div class="status"><b></b>Запущено 23.09.2026 · на паузі з 28.10.2026</div>
+   </div>
+   <div class="facts">
+    <div><strong>7</strong><span>рубрик, по одній на день тижня</span></div>
+    <div><strong>30</strong><span>тем у банку на кожну рубрику</span></div>
+    <div><strong>3</strong><span>проходи ШІ на кожен пост</span></div>
+    <div><strong>~300</strong><span>слів у пості в Telegram</span></div>
+    <div><strong>3</strong><span>мережі в робочій версії</span></div>
+    <div><strong>5</strong><span>функцій запущено й вимкнено</span></div>
+   </div>
+  </div>
+
+  <div class="route">
+   <h2>Маршрут одного поста</h2>
+   <p class="muted small">Усе відбувається без моєї участі. Я втручаюсь на рівні правил, а не кожного тексту.</p>
+   <div class="line">
+    <div class="st"><b>Railway cron</b><span>запуск щоранку, бот чекає рівно 08:00 за Києвом</span></div>
+    <div class="st"><b>Вибір теми</b><span>Python бере наступну тему рубрики з банку</span></div>
+    <div class="st"><b>Досьє</b><span>OpenAI API збирає факти, тези, напругу теми</span></div>
+    <div class="st"><b>Автор</b><span>чернетка ~300 слів із тезою мислителя</span></div>
+    <div class="st"><b>Редактор</b><span>факти, простота мови, русизми, логіка</span></div>
+    <div class="st out"><b>Telegram</b><span>Bot API: повний пост у канал</span></div>
+    <div class="st out"><b>Facebook</b><span>Graph API: коротко, з прямими питаннями</span></div>
+    <div class="st out"><b>Threads</b><span>Threads API: тизер із підводкою до каналу</span></div>
+   </div>
+   <div class="cut"><em>Запущено, протестовано й вимкнено:</em><span class="chip">картинка до поста</span><span class="chip">щотижневе опитування</span><span class="chip">Instagram</span><span class="chip">Reels</span><span class="chip">TikTok</span></div>
+  </div>
+ </div>
+</section>
+
+<section class="band alt">
+ <div class="wrap two">
+  <div>
+   <h2>Проблема й гіпотеза</h2>
+   <p>Про філософію, психологію й науку українською або пишуть складно, або подають як «цікавий факт» без глибини.</p>
+   <p><b>Гіпотеза:</b> є читачі, яким потрібен щоденний короткий текст на одну велику ідею — з контекстом, поясненням термінів і тезою мислителя, яку можна обдумати.</p>
+   <p>Ключове обмеження: продукт має працювати щодня без ручної праці, інакше канал помирає на другому тижні.</p>
+  </div>
+  <div>
+   <h2>Як народжується пост</h2>
+   <div class="week">
+    <div class="day"><b>Пн</b><span>Психологія</span></div>
+    <div class="day"><b>Вт</b><span>Філософія</span></div>
+    <div class="day"><b>Ср</b><span>Українська література</span></div>
+    <div class="day"><b>Чт</b><span>Космос</span></div>
+    <div class="day"><b>Пт</b><span>Мистецтво</span></div>
+    <div class="day"><b>Сб</b><span>Аристократія / економіка</span></div>
+    <div class="day"><b>Нд</b><span>Суспільство / політика</span></div>
+   </div>
+   <div class="passes">
+    <div><b>Досьє</b>факти й тези для себе</div>
+    <div><b>Автор</b>пост за структурою</div>
+    <div><b>Редактор</b>перевірка й шліфування</div>
+   </div>
+  </div>
+ </div>
+ <div class="wrap" style="margin-top:28px">
+  <div class="split">
+   <div>
+    <h3>Що роблю я</h3>
+    <ul>
+     <li>задаю напрями тем: Ніцше, Юнг, детермінізм, ефект спостерігача, економіка й політика</li>
+     <li>пишу правила в prompt'ах: «слова персонажа — від імені персонажа», «заклик без нових тем», «кожен термін пояснено»</li>
+     <li>визначаю формат кожної мережі: повний пост, коротка версія з питаннями, тизер</li>
+     <li>читаю результат, перевіряю логи й міняю правила, коли бачу системну помилку</li>
+    </ul>
+   </div>
+   <div>
+    <h3>Що робить ШІ</h3>
+    <ul>
+     <li>збирає досьє теми й пише пост за моєю структурою</li>
+     <li>сам себе редагує: факти, простота, русизми, зв'язність</li>
+     <li>адаптує текст під Facebook і Threads</li>
+     <li>пропонує нові теми, коли банк закінчиться, звіряючись з історією</li>
+    </ul>
+   </div>
+  </div>
+ </div>
+</section>
+
+<section class="band">
+ <div class="wrap two">
+  <div>
+   <h2>Рішення й ітерації</h2>
+   <p class="muted">Кожна функція з'являлась як гіпотеза. Якщо вона коштувала більше, ніж давала, я її вимикав.</p>
+   <ul class="tl">
+    <li class="k"><time>23.09</time>Запуск у Telegram<p>Щоденний пост за розкладом, без ручної праці.</p></li>
+    <li><time>поч. жовтня</time>Формати для Facebook і Threads<p>Не копія посту: тизер з контекстом у Threads, коротка версія з питаннями у Facebook, посилання лише в шапці профілю.</p></li>
+    <li><time>09.10</time>Перший Reels<p>Сценарій від ШІ, озвучка ElevenLabs, стокові кадри, субтитри. Формат допрацьовував за відгуками: 30 секунд, повний екран, вужчий текст.</p></li>
+    <li><time>10.10</time>Перша оптимізація витрат<p>Короткі тексти — на дешевшу модель, AI-кадрів у відео не більше двох.</p></li>
+    <li><time>14.10</time>Нові рубрики<p>Економіка й політика чергуються з аристократією й суспільством.</p></li>
+    <li><time>22.10</time>Вимкнено відео, Instagram і опитування<p>Фокус на трьох мережах, де пост працює без ручних кроків.</p></li>
+    <li><time>27.10</time>Вимкнено картинки<p>Пости лише текстом.</p></li>
+    <li class="k"><time>28.10</time>Пауза<p>Постинг зупинено, код і банк тем збережено. Відновлення — одна зміна розкладу.</p></li>
+   </ul>
+  </div>
+  <div>
+   <h2>Економіка</h2>
+   <p class="muted">Витрати на OpenAI з мого кабінету, жовтень 2026.</p>
+   <div class="econ">
+    <div class="card"><strong>9,66 $</strong><span class="muted small">за 1–27 жовтня, усі експерименти включно</span></div>
+    <div class="card"><strong>≈0,3 $</strong><span class="muted small">типовий день; пік 1,12 $ — день тестових прев'ю відео</span></div>
+   </div>
+   <p style="margin-top:16px">Висновок, який я зробив: відео додавало кілька центів у свої дні, а основу витрат складає сам текстовий пост на сильній моделі. Тому наступні кроки — менше «роздумів» моделі і облік токенів на кожен запит.</p>
+   <h2 style="margin-top:28px">Що б я міряв далі</h2>
+   <div class="scroll">
+    <table class="stack">
+     <thead><tr><th>Метрика</th><th>Навіщо</th></tr></thead>
+     <tbody>
+      <tr><td data-l="Метрика">Перегляди поста / підписники</td><td data-l="Навіщо">чи читають, а не лише підписались</td></tr>
+      <tr><td data-l="Метрика">Переходи з Threads і Facebook</td><td data-l="Навіщо">чи працюють тизери як воронка</td></tr>
+      <tr><td data-l="Метрика">Відписки після поста</td><td data-l="Навіщо">які рубрики відштовхують</td></tr>
+      <tr><td data-l="Метрика">Вартість одного поста</td><td data-l="Навіщо">ціна контенту на одного читача</td></tr>
+     </tbody>
+    </table>
+   </div>
+   <p class="small muted" style="margin-top:10px">Це план вимірювань. Результатів по аудиторії тут немає навмисно.</p>
+  </div>
+ </div>
+</section>
+
+<section class="band alt">
+ <div class="wrap">
+  <h2>Що це показує про мене як продакта</h2>
+  <div class="skills">
+   <div><h3>Думаю гіпотезами</h3><p>Запускаю функцію швидко, дивлюсь, що вона дає і скільки коштує, і без жалю вимикаю те, що не виправдовує себе: відео, Instagram, опитування, картинки.</p></div>
+   <div><h3>Керую ШІ як командою</h3><p>Ділю роботу на ролі (досьє, автор, редактор), пишу для них правила й перевіряю результат системно, а не правлю кожен текст руками.</p></div>
+   <div><h3>Доводжу до робочого продукту</h3><p>API Telegram, Meta, Threads, TikTok, розклад, токени, обробка помилок. Код написаний разом з AI-асистентом Claude Code за моїми задачами.</p></div>
+  </div>
+  <h2 style="margin-top:36px;font-size:22px">Коротко</h2>
+  <p class="cv">Створив «До речі» — україномовний Telegram-канал про великі ідеї, який щодня публікує пости автоматично. ШІ пише кожен пост у три етапи, а я відповідаю за продукт: теми, формат, правила якості, канали поширення й витрати. За місяць запустив і перевірив п'ять додаткових функцій, залишив ядро з трьох мереж і знизив витрати, вимкнувши те, що не окупалося.</p>
+ </div>
+</section>
+
+<footer class="band">
+ <div class="wrap">
+  <h2 style="font-size:22px;color:var(--ink)">Контакти</h2>
+  <p style="font-size:16px;color:var(--ink);margin-bottom:4px">Telegram: <a href="https://t.me/kUrp1ak" style="color:var(--dot)">@kUrp1ak</a></p>
+  <p style="font-size:16px;color:var(--ink)">GitHub: <a href="https://github.com/ryzhyy" style="color:var(--dot)">github.com/ryzhyy</a></p>
+  <p>Канал: Telegram @dorechi_dorechi · Instagram і Threads @do__rechi · Facebook facebook.com/dorechipage</p>
+ </div>
+</footer>
+
+</body>
+</html>
