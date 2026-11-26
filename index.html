@@ -33,6 +33,9 @@ h3{font-size:20px;font-weight:800;margin-bottom:6px}
 p{margin:0 0 12px}
 .lead{font-size:clamp(17px,1.6vw,20px);color:var(--mute);max-width:36em;margin-top:18px}
 .hero{display:grid;gap:40px;align-items:center}
+.status{display:inline-flex;align-items:center;gap:10px;margin-bottom:22px;padding:8px 16px;border:1px solid var(--rule);border-radius:999px;background:var(--soft);font-size:15px;font-weight:500;white-space:nowrap}
+.status i{width:10px;height:10px;border-radius:50%;background:var(--mute);flex:none}
+@media(max-width:420px){.status{white-space:normal;font-size:14px}}
 @media(min-width:900px){.hero{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)}}
 .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(9em,1fr));gap:12px;margin-top:28px}
 .fact{border-top:4px solid var(--c);padding-top:10px}
@@ -97,6 +100,7 @@ footer{color:var(--mute);font-size:14px;padding-block:20px!important}
 
 <header class="band"><div class="wrap hero">
   <div>
+    <div class="status"><i></i>Запущено 23.09.2026 · на паузі з 28.10.2026</div>
     <h1>AI-адміністратор запису для малого бізнесу в Telegram</h1>
     <p class="lead">Салон, барбершоп чи репетитор налаштовує власного бота за 10–15 хвилин, без сайту й програмування. Клієнти записуються кнопками або звичайним повідомленням, а бот сам перевіряє графік, майстра й вільний час.</p>
     <div class="facts">
